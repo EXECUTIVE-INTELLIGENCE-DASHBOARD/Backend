@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import dj_database_url
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -27,6 +28,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "core.apps.CoreConfig",
+    'academics.apps.AcademicsConfig',
 ]
 
 MIDDLEWARE = [
@@ -35,6 +37,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -60,6 +63,13 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    # Used on Render (PostgreSQL)
+    DATABASES = {
+        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=60)
+    }
 if os.environ.get("POSTGRES_HOST"):
     DATABASES = {
         "default": {
@@ -107,7 +117,9 @@ CORS_ALLOW_CREDENTIALS = False
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "rest_framework.permissions.AllowAny",
     ],
 }
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
