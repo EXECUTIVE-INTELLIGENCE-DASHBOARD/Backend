@@ -58,6 +58,6 @@ jobs:
       - name: Check migration state
         run: python manage.py makemigrations --check --dry-run
       - name: Run API tests
-        venv:
+        env:
           DJANGO_SETTINGS_MODULE: config.settings
         run: pytest
