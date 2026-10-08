@@ -1,9 +1,8 @@
-from rest_framework.permissions import AllowAny
-from pyclbr import Class
-from django.shortcuts import render
 from rest_framework import viewsets
+
 from .models import Student
-from .serializers import StudentSerializer,LocationSerializer
+from .serializers import LocationSerializer, StudentSerializer
+
 
 # Create your views here.
 class StudentViewSet(viewsets.ModelViewSet):
