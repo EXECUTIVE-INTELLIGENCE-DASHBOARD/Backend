@@ -70,7 +70,7 @@ if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(DATABASE_URL, conn_max_age=60)
     }
-if os.environ.get("POSTGRES_HOST"):
+elif os.environ.get("POSTGRES_HOST"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
