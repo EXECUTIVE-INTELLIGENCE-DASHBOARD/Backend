@@ -71,8 +71,11 @@ class Events(models.Model):
 	total_female = models.IntegerField(default=0)
 	total_male = models.IntegerField(default=0)
     period = models.CharField(max_length = 255, default="")
-
-
+#this is for staff under the academic domain
+class Staff(models.Model):
+	name = models.Charfield(max_length = 255, default="")
+	contact = models.CharField(max_length = 255, default="")
+	email = models. CharFiled(max_length = 255, default="")
 
 
 
