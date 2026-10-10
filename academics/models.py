@@ -77,6 +77,8 @@ class Staff(models.Model):
 	contact = models.CharField(max_length = 255, default="")
 	email = models. CharFiled(max_length = 255, default="")
 
+#TO DO: create subject model
+
 
 
 
