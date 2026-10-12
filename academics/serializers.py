@@ -8,6 +8,7 @@ from .models import (
     GradeResult,
     Homework,
     Section,
+    Staff,
     Student,
 )
 
@@ -50,4 +51,9 @@ class CurricularSerializer(serializers.ModelSerializer):
 class EventsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Events
+        fields = '__all__'
+
+class StaffSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Staff
         fields = '__all__'

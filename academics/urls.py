@@ -9,6 +9,7 @@ from .views import (
     GradeResultViewSet,
     HomeworkViewSet,
     SectionViewSet,
+    StaffViewSet,
     StudentViewSet,
 )
 
@@ -21,6 +22,7 @@ router.register('homework', HomeworkViewSet)
 router.register('attendance', AttendanceViewSet)
 router.register('curricular', CurricularViewSet)
 router.register('events', EventsViewSet)
+router.register('staff', StaffViewSet)
 urlpatterns=[
     path('8000/academics/', include(router.urls)),
    

@@ -8,6 +8,7 @@ from .models import (
     GradeResult,
     Homework,
     Section,
+    Staff,
     Student,
 )
 from .serializers import (
@@ -18,6 +19,7 @@ from .serializers import (
     GradeResultSerializer,
     HomeworkSerializer,
     SectionSerializer,
+    StaffSerializer,
     StudentSerializer,
 )
 
@@ -54,4 +56,8 @@ class CurricularViewSet(viewsets.ModelViewSet):
 class EventsViewSet(viewsets.ModelViewSet):
     serializer_class = EventsSerializer
     queryset = Events.objects.all()
+
+class StaffViewSet(viewsets.ModelViewSet):
+    serializer_class = StaffSerializer
+    queryset = Staff.objects.all()    
 
