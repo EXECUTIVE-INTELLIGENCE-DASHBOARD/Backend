@@ -29,6 +29,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "core.apps.CoreConfig",
     'academics.apps.AcademicsConfig',
+    'finance.apps.FinanceConfig',
+    'procurement.apps.ProcurementConfig',
 ]
 
 MIDDLEWARE = [
