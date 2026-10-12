@@ -197,7 +197,7 @@ class RevenueRecord(models.Model):
         return f"{self.stream} - {self.billed_amount} {self.currency}"
 
 
-# Store monthly revenue targets and actual collections.
+# This model stores monthly revenue targets and actual collections.
 class MonthlyRevenueTarget(models.Model):
     fiscal_year = models.ForeignKey(
         FiscalYear,
