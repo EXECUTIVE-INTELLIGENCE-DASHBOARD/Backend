@@ -110,7 +110,7 @@ def greenhill_callback(request):
         return redirect(settings.FRONTEND_URL)
 
     except Exception:
-        # Avoid returning access tokens or internal exception details.
+        logger.exception("GreenHill OIDC callback failed")
         return JsonResponse(
             {"error": "GreenHill sign-in failed. Please try again."},
             status=401,
