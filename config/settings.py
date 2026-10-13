@@ -219,3 +219,21 @@ GREENHILL_OIDC_CLIENT_ID = os.environ.get(
     "GREENHILL_OIDC_CLIENT_ID",
     "",
 )
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
