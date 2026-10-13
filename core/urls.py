@@ -1,4 +1,3 @@
-cat > core/urls.py <<'PY'
 from django.urls import path
 
 from core.views import health
@@ -16,4 +15,3 @@ urlpatterns = [
     path("auth/me/", current_user, name="current_user"),
     path("auth/logout/", greenhill_logout, name="greenhill_logout"),
 ]
-PY

@@ -1,4 +1,3 @@
-cat > core/oidc_views.py <<'PY'
 import os
 
 from authlib.integrations.django_client import OAuth
@@ -123,4 +122,3 @@ def current_user(request):
 def greenhill_logout(request):
     django_logout(request)
     return JsonResponse({"authenticated": False})
-PY
