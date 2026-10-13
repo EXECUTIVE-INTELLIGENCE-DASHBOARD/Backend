@@ -16,4 +16,3 @@ urlpatterns = [
     path("auth/me/", current_user, name="current_user"),
     path("auth/logout/", greenhill_logout, name="greenhill_logout"),
 ]
-PY
