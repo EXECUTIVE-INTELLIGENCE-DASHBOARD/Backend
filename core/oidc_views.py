@@ -1,5 +1,7 @@
 import os
 
+import logging
+logger = logging.getLogger(__name__)
 from authlib.integrations.django_client import OAuth
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -24,18 +26,32 @@ oauth.register(
 )
 
 
+
 @require_GET
 def greenhill_login(request):
-    if not settings.GREENHILL_OIDC_CLIENT_ID:
-        return JsonResponse(
-            {"error": "GreenHill OIDC client ID is not configured."},
-            status=503,
+    try:
+        if not settings.GREENHILL_OIDC_CLIENT_ID:
+            return JsonResponse(
+                {"error": "GreenHill OIDC client ID is not configured."},
+                status=503,
+            )
+
+        callback_url = request.build_absolute_uri(
+            reverse("greenhill_callback")
         )
 
-    callback_url = request.build_absolute_uri(
-        reverse("greenhill_callback")
-    )
-    return oauth.greenhill.authorize_redirect(request, callback_url)
+        return oauth.greenhill.authorize_redirect(
+            request,
+            callback_url,
+        )
+
+    except Exception:
+        logger.exception("GreenHill OIDC login initiation failed")
+        return JsonResponse(
+            {"error": "Sign-in could not be started. Please try again."},
+            status=500,
+        )
+
 
 
 @require_GET
