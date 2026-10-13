@@ -43,6 +43,7 @@ def greenhill_login(request):
         return oauth.greenhill.authorize_redirect(
             request,
             callback_url,
+            code_challenge_method="S256",
         )
 
     except Exception:
