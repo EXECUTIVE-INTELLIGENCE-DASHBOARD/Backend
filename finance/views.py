@@ -1,2 +1,46 @@
+from rest_framework import viewsets
+
+from .models import (
+    Creditor,
+    Department,
+    DepartmentBudget,
+    FiscalYear,
+    Liability,
+    MonthlyRevenueTarget,
+    RevenueRecord,
+)
+from .serializers import (
+    CreditorSerializer,
+    DepartmentBudgetSerializer,
+    DepartmentSerializer,
+    FiscalYearSerializer,
+    LiabilitySerializer,
+    MonthlyRevenueTargetSerializer,
+    RevenueRecordSerializer,
+)
+
 
 # Create your views here.
+class CreditorViewSet(viewsets.ModelViewSet):
+    serializer_class = CreditorSerializer
+    queryset = Creditor.objects.all()
+class DepartmentViewSet(viewsets.ModelViewSet):
+    serializer_class = DepartmentSerializer
+    queryset = Department.objects.all()
+class DepartmentBudgetViewSet(viewsets.ModelViewSet):
+    serializer_class = DepartmentBudgetSerializer
+    queryset = DepartmentBudget.objects.all()
+class FiscalYearViewSet(viewsets.ModelViewSet):
+    serializer_class = FiscalYearSerializer
+    queryset = FiscalYear.objects.all()
+class LiabilityViewSet(viewsets.ModelViewSet):
+    serializer_class = LiabilitySerializer
+    queryset = Liability.objects.all()
+class MonthlyRevenueTargetViewSet(viewsets.ModelViewSet):
+    serializer_class = MonthlyRevenueTargetSerializer
+    queryset = MonthlyRevenueTarget.objects.all()
+class RevenueRecordViewSet(viewsets.ModelViewSet):
+    serializer_class = RevenueRecordSerializer
+    queryset = RevenueRecord.objects.all()
+
+    
