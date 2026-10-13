@@ -1,15 +1,15 @@
 from django.contrib import admin
 
 from .models import (
-    Student,
     Academic,
-    Section,
-    GradeResult,
-    Homework,
     Attendance,
     Curricular,
     Events,
+    GradeResult,
+    Homework,
+    Section,
     Staff,
+    Student,
 )
 
 admin.site.register([

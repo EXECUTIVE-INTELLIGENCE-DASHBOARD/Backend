@@ -1,13 +1,13 @@
 from django.contrib import admin
 
 from .models import (
-    FiscalYear,
+    Creditor,
     Department,
     DepartmentBudget,
-    Creditor,
+    FiscalYear,
     Liability,
-    RevenueRecord,
     MonthlyRevenueTarget,
+    RevenueRecord,
 )
 
 admin.site.register([
