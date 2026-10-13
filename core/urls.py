@@ -1,12 +1,12 @@
 from django.urls import path
 
-from core.views import health
 from core.oidc_views import (
     current_user,
     greenhill_callback,
     greenhill_login,
     greenhill_logout,
 )
+from core.views import health
 
 urlpatterns = [
     path("health/", health, name="health"),
