@@ -2,7 +2,7 @@
 from django.db import models
 
 
-# Define the available fiscal years and quarters.
+# This model defines the available fiscal years and quarters.
 class FiscalYear(models.Model):
     year = models.CharField(max_length=9)
     quarter = models.PositiveSmallIntegerField()
