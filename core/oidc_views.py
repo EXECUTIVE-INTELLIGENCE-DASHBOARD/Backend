@@ -1,8 +1,8 @@
 
-import os
 import base64
 import hashlib
 import logging
+import os
 import secrets
 
 from authlib.integrations.django_client import OAuth
