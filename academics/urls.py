@@ -24,6 +24,6 @@ router.register('curricular', CurricularViewSet)
 router.register('events', EventsViewSet)
 router.register('staff', StaffViewSet)
 urlpatterns=[
-    path('8000/academics/', include(router.urls)),
+    path('academics/', include(router.urls)),
    
 ]
