@@ -1,8 +1,15 @@
-
 import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load local environment variables from the backend .env file.
+load_dotenv(BASE_DIR / ".env")
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -40,6 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    'drf_spectacular',
     "core.apps.CoreConfig",
     "academics.apps.AcademicsConfig",
     "finance.apps.FinanceConfig",
@@ -80,7 +88,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database: Render PostgreSQL or local SQLite
+# Database: PostgreSQL only
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
@@ -88,28 +96,35 @@ if DATABASE_URL:
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=60,
+            conn_health_checks=True,
         )
     }
-elif os.environ.get("POSTGRES_HOST"):
+else:
+    # Build a local PostgreSQL connection from .env variables.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("POSTGRES_DB", "eid"),
-            "USER": os.environ.get("POSTGRES_USER", "eid"),
-            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
-            "HOST": os.environ["POSTGRES_HOST"],
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "NAME": os.environ.get("DB_NAME", "greenhill_eid"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "localhost"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
             "CONN_MAX_AGE": 60,
-        }
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "CONN_HEALTH_CHECKS": True,
         }
     }
 
+# Prevent accidental use of SQLite or another database engine.
+if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+    raise ImproperlyConfigured(
+        "Only PostgreSQL is supported. Check your database configuration."
+    )
+
+# Require an explicit password for the local PostgreSQL connection.
+if not DATABASE_URL and not DATABASES["default"]["PASSWORD"]:
+    raise ImproperlyConfigured(
+        "DB_PASSWORD is missing from your .env file."
+    )
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -167,6 +182,17 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'GreenHill Executive Intelligence Dashboard API',
+    'DESCRIPTION': (
+        'API documentation for the GreenHill Schools '
+        'Executive Intelligence Dashboard.'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 # CORS: allow the React/Vite development frontend by default

@@ -25,5 +25,5 @@ router.register('events', EventsViewSet)
 router.register('staff', StaffViewSet)
 urlpatterns=[
     path('academics/', include(router.urls)),
-   
+                                                                  
 ]

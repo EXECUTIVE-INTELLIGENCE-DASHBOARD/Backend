@@ -10,4 +10,5 @@ htmlcov/
 .env.*
 !.env.example
 .DS_Store
-
+db.sqlite3
+staticfiles/
