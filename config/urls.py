@@ -1,3 +1,4 @@
+
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
@@ -8,11 +9,11 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    path("", RedirectView.as_view(url="/api/health/", permanent=False)),
+    path("", RedirectView.as_view(url="/api/docs/", permanent=False)),
     path("admin/", admin.site.urls),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url="/api/schema/"), name="swagger-ui"),
-    path("api/redoc/", SpectacularRedocView.as_view(url="/api/schema/"), name="redoc"),
+    path("api/redoc/",SpectacularRedocView.as_view(url="/api/schema/"),name="redoc",),
     path("api/", include("core.urls")),
     path("api/", include("academics.urls")),
     path("api/", include("finance.urls")),
