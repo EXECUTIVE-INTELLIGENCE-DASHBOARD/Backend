@@ -51,8 +51,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -99,26 +99,11 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get(
-                "DB_NAME",
-                os.environ.get("POSTGRES_DB", "greenhill_eid"),
-            ),
-            "USER": os.environ.get(
-                "DB_USER",
-                os.environ.get("POSTGRES_USER", "postgres"),
-            ),
-            "PASSWORD": os.environ.get(
-                "DB_PASSWORD",
-                os.environ.get("POSTGRES_PASSWORD", ""),
-            ),
-            "HOST": os.environ.get(
-                "DB_HOST",
-                os.environ.get("POSTGRES_HOST", "localhost"),
-            ),
-            "PORT": os.environ.get(
-                "DB_PORT",
-                os.environ.get("POSTGRES_PORT", "5432"),
-            ),
+            "NAME": os.environ.get("DB_NAME", os.environ.get("POSTGRES_DB", "greenhill_eid")),
+            "USER": os.environ.get("DB_USER",os.environ.get("POSTGRES_USER", "postgres"),),
+            "PASSWORD": os.environ.get("DB_PASSWORD",os.environ.get("POSTGRES_PASSWORD", ""),),
+            "HOST": os.environ.get("DB_HOST",os.environ.get("POSTGRES_HOST", "localhost"), ),
+            "PORT": os.environ.get( "DB_PORT",os.environ.get("POSTGRES_PORT", "5432"),),
             "CONN_MAX_AGE": 60,
             "CONN_HEALTH_CHECKS": True,
         }
@@ -187,18 +172,20 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
 }
 
-
+# CORS configuration
 CORS_ALLOWED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in os.environ.get(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173",
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174,"
+        "https://greenhill-eid-frontend.onrender.com,"
+        "https://greenhill-auth-frontend2.onrender.com",
     ).split(",")
     if origin.strip()
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
