@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     "academics.apps.AcademicsConfig",
     "finance.apps.FinanceConfig",
     "procurement.apps.ProcurementConfig",
+    "operations.apps.OperationsConfig",
+
 ]
 
 MIDDLEWARE = [
