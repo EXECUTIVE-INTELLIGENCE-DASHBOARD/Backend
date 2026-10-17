@@ -30,6 +30,7 @@ def _rate(part, whole):
     return round(part * 100 / whole, 1) if whole else None
 
 
+@extend_schema(tags=["Operations - HR & Workforce"])
 class WorkforceUnitViewSet(viewsets.ModelViewSet):
     serializer_class = WorkforceUnitSerializer
     queryset = WorkforceUnit.objects.all()
@@ -42,6 +43,7 @@ class WorkforceUnitViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema(tags=["Operations - HR & Workforce"])
 class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
     queryset = Employee.objects.select_related("unit")
@@ -58,6 +60,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema(tags=["Operations - HR & Workforce"])
 class StaffAttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = StaffAttendanceSerializer
     queryset = StaffAttendance.objects.select_related("employee")
@@ -78,6 +81,7 @@ class StaffAttendanceViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema(tags=["Operations - HR & Workforce"])
 class HRDashboardView(APIView):
     """Workforce distribution and attendance register for the HR & Workforce dashboard.
 
@@ -165,6 +169,7 @@ class HRDashboardView(APIView):
         return Response(HRDashboardSerializer(data).data)
 
 
+@extend_schema(tags=["Operations - Facilities & Maintenance"])
 class FacilityViewSet(viewsets.ModelViewSet):
     serializer_class = FacilitySerializer
     queryset = Facility.objects.all()
@@ -178,6 +183,7 @@ class FacilityViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema(tags=["Operations - Assets & Equipment"])
 class AssetViewSet(viewsets.ModelViewSet):
     serializer_class = AssetSerializer
     queryset = Asset.objects.select_related("facility")
@@ -195,6 +201,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema(tags=["Operations - Assets & Equipment"])
 class AssetDashboardView(APIView):
     """Institutional asset register and condition summary for the Assets & Equipment dashboard.
 

@@ -172,6 +172,34 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Docs groups in the same order as the frontend sidebar. Every view sets one of these
+    # with @extend_schema(tags=[...]); core/tests/test_api_docs.py enforces it.
+    "TAGS": [
+        {"name": "Academics - Students", "description": "Students, sections and attendance."},
+        {
+            "name": "Academics - Performance",
+            "description": "Academic records, grade results and homework.",
+        },
+        {"name": "Academics - Co-Curricular", "description": "Clubs, societies and events."},
+        {"name": "Academics - Staff", "description": "Academic staff records."},
+        {"name": "Finance - Budgets", "description": "Fiscal years, departments and budgets."},
+        {"name": "Finance - Liabilities", "description": "Creditors and outstanding liabilities."},
+        {"name": "Finance - Revenue", "description": "Revenue records and monthly targets."},
+        {"name": "Procurement", "description": "Vendors and procurement transactions."},
+        {
+            "name": "Operations - HR & Workforce",
+            "description": "Workforce units, employees, staff attendance and the HR dashboard.",
+        },
+        {
+            "name": "Operations - Facilities & Maintenance",
+            "description": "Campus facilities and their operating status.",
+        },
+        {
+            "name": "Operations - Assets & Equipment",
+            "description": "Asset register, condition and the asset dashboard.",
+        },
+        {"name": "System", "description": "Service health."},
+    ],
     # One name for choice sets shared by several fields, so the schema has no duplicates.
     "ENUM_NAME_OVERRIDES": {
         "ProcurementCategoryEnum": "procurement.models.ProcurementCategory",
