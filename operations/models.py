@@ -44,20 +44,24 @@ class Facility(models.Model):
 
 class Asset(models.Model):
     """Operations asset registry — vehicles, computers, and other tracked equipment,
-    recorded by location (Facility) and quantity."""
+    recorded by location (Facility), quantity and value. Each row is one line of the
+    institutional asset register, e.g. "Dell Student Laboratory Workstations" x 120."""
 
     class Category(models.TextChoices):
-        VEHICLE = "vehicle", "Vehicle"
-        COMPUTER_EQUIPMENT = "computer_equipment", "Computer Equipment"
-        FURNITURE = "furniture", "Furniture"
-        MACHINERY = "machinery", "Machinery"
+        COMPUTER_EQUIPMENT = "computer_equipment", "ICT Hardware"
+        LABORATORY_EQUIPMENT = "laboratory_equipment", "Science Laboratory Equipment"
+        FURNITURE = "furniture", "Administrative Furniture"
+        MACHINERY = "machinery", "Power & Facility Machinery"
+        VEHICLE = "vehicle", "Fleet & Vehicles"
         OTHER = "other", "Other"
 
     class Condition(models.TextChoices):
-        GOOD = "good", "Good"                        # fully functional, no known issues
-        FAIR = "fair", "Fair"                         # usable but showing wear
-        UNDER_REPAIR = "under_repair", "Under Repair"  # temporarily out of service
-        DECOMMISSIONED = "decommissioned", "Decommissioned"  # retired from active use
+        OPERATIONAL = "operational", "Operational (Good)"  # fully functional, no known issues
+        # usable but showing wear; needs servicing soon
+        SERVICING_REQUIRED = "servicing_required", "Servicing Required"
+        CRITICAL = "critical", "Critical / Repair Queued"  # out of service, awaiting repair
+        # retired from active use; left out of register totals
+        DECOMMISSIONED = "decommissioned", "Decommissioned"
 
     name = models.CharField(max_length=150)  # e.g. "Toyota Hiace Bus", "Dell Latitude Laptop"
     # broad asset type, for filtering/grouping
@@ -69,13 +73,20 @@ class Asset(models.Model):
     )
     # count of identical units at this location (1 for a single serialized item like a car)
     quantity = models.PositiveIntegerField(default=1)
+    # value of one unit in UGX; the register's total value is quantity x unit_value
+    unit_value = models.DecimalField(max_digits=16, decimal_places=2, default=0)
     # current state, for maintenance/replacement planning
     condition = models.CharField(
-        max_length=20, choices=Condition.choices, default=Condition.GOOD
+        max_length=20, choices=Condition.choices, default=Condition.OPERATIONAL
     )
     acquired_date = models.DateField(null=True, blank=True)  # when the asset was acquired, if known
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def total_value(self):
+        """Register value of this line in UGX (quantity x unit value)."""
+        return self.quantity * self.unit_value
 
     def __str__(self):
         return f"{self.name} ({self.facility})"
