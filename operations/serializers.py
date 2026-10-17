@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Employee, StaffAttendance, WorkforceUnit
+from .models import Asset, Employee, Facility, StaffAttendance, WorkforceUnit
 
 
 class WorkforceUnitSerializer(serializers.ModelSerializer):
@@ -65,3 +65,43 @@ class HRDashboardSerializer(serializers.Serializer):
     end = serializers.DateField()
     summary = HRDashboardSummarySerializer()
     units = HRDashboardUnitSerializer(many=True)
+
+
+class FacilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Facility
+        fields = '__all__'
+
+
+class AssetSerializer(serializers.ModelSerializer):
+    category_display = serializers.CharField(source="get_category_display", read_only=True)
+    condition_display = serializers.CharField(source="get_condition_display", read_only=True)
+    facility_name = serializers.CharField(source="facility.name", read_only=True)
+    campus = serializers.CharField(source="facility.campus", read_only=True)
+    campus_display = serializers.CharField(source="facility.get_campus_display", read_only=True)
+    total_value = serializers.DecimalField(max_digits=20, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Asset
+        fields = '__all__'
+
+
+# Query parameters accepted by the asset register dashboard endpoint.
+class AssetDashboardQuerySerializer(serializers.Serializer):
+    campus = serializers.ChoiceField(choices=Facility.Campus.choices, required=False)
+    category = serializers.ChoiceField(choices=Asset.Category.choices, required=False)
+    facility = serializers.IntegerField(required=False)
+
+
+class AssetDashboardSummarySerializer(serializers.Serializer):
+    total_assets = serializers.IntegerField()
+    total_value = serializers.DecimalField(max_digits=20, decimal_places=2)
+    operational_rate = serializers.FloatField(allow_null=True)
+    capital_risk = serializers.FloatField(allow_null=True)
+    capital_at_risk_value = serializers.DecimalField(max_digits=20, decimal_places=2)
+    units_by_condition = serializers.DictField(child=serializers.IntegerField())
+
+
+class AssetDashboardSerializer(serializers.Serializer):
+    summary = AssetDashboardSummarySerializer()
+    assets = AssetSerializer(many=True)

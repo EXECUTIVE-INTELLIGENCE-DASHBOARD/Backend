@@ -1,15 +1,20 @@
 from datetime import timedelta
+from decimal import Decimal
 
-from django.db.models import Count, Q
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Employee, StaffAttendance, WorkforceUnit
+from .models import Asset, Employee, Facility, StaffAttendance, WorkforceUnit
 from .serializers import (
+    AssetDashboardQuerySerializer,
+    AssetDashboardSerializer,
+    AssetSerializer,
     EmployeeSerializer,
+    FacilitySerializer,
     HRDashboardQuerySerializer,
     HRDashboardSerializer,
     StaffAttendanceSerializer,
@@ -158,3 +163,99 @@ class HRDashboardView(APIView):
             "units": rows,
         }
         return Response(HRDashboardSerializer(data).data)
+
+
+class FacilityViewSet(viewsets.ModelViewSet):
+    serializer_class = FacilitySerializer
+    queryset = Facility.objects.all()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        for field in ("campus", "facility_type", "status"):
+            if params.get(field):
+                queryset = queryset.filter(**{field: params[field]})
+        return queryset
+
+
+class AssetViewSet(viewsets.ModelViewSet):
+    serializer_class = AssetSerializer
+    queryset = Asset.objects.select_related("facility")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        if params.get("campus"):
+            queryset = queryset.filter(facility__campus=params["campus"])
+        if params.get("facility"):
+            queryset = queryset.filter(facility_id=params["facility"])
+        for field in ("category", "condition"):
+            if params.get(field):
+                queryset = queryset.filter(**{field: params[field]})
+        return queryset
+
+
+class AssetDashboardView(APIView):
+    """Institutional asset register and condition summary for the Assets & Equipment dashboard.
+
+    The register is a current snapshot, not a date range. Decommissioned assets are left
+    out of every figure. Total assets and operational rate count units (quantity);
+    capital risk is the share of register value that needs servicing or is critical.
+    """
+
+    @extend_schema(parameters=[AssetDashboardQuerySerializer], responses=AssetDashboardSerializer)
+    def get(self, request):
+        query = AssetDashboardQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+
+        assets = (
+            Asset.objects.select_related("facility")
+            .exclude(condition=Asset.Condition.DECOMMISSIONED)
+            .order_by("name")
+        )
+        if params.get("campus"):
+            assets = assets.filter(facility__campus=params["campus"])
+        if params.get("category"):
+            assets = assets.filter(category=params["category"])
+        if params.get("facility"):
+            assets = assets.filter(facility_id=params["facility"])
+
+        line_value = ExpressionWrapper(
+            F("quantity") * F("unit_value"),
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        )
+        by_condition = {
+            row["condition"]: row
+            for row in assets.order_by()
+            .values("condition")
+            .annotate(units=Sum("quantity"), value=Sum(line_value))
+        }
+
+        total_assets = sum(row["units"] for row in by_condition.values())
+        total_value = sum((row["value"] for row in by_condition.values()), Decimal(0))
+        operational = by_condition.get(Asset.Condition.OPERATIONAL)
+        operational_units = operational["units"] if operational else 0
+        at_risk_value = sum(
+            (
+                by_condition[condition]["value"]
+                for condition in (Asset.Condition.SERVICING_REQUIRED, Asset.Condition.CRITICAL)
+                if condition in by_condition
+            ),
+            Decimal(0),
+        )
+
+        data = {
+            "summary": {
+                "total_assets": total_assets,
+                "total_value": total_value,
+                "operational_rate": _rate(operational_units, total_assets),
+                "capital_risk": _rate(at_risk_value, total_value),
+                "capital_at_risk_value": at_risk_value,
+                "units_by_condition": {
+                    condition: row["units"] for condition, row in by_condition.items()
+                },
+            },
+            "assets": assets,
+        }
+        return Response(AssetDashboardSerializer(data).data)
