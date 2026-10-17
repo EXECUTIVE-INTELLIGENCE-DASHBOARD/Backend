@@ -172,6 +172,10 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # One name for choice sets shared by several fields, so the schema has no duplicates.
+    "ENUM_NAME_OVERRIDES": {
+        "ProcurementCategoryEnum": "procurement.models.ProcurementCategory",
+    },
 }
 
 # CORS configuration
