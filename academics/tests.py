@@ -1,7 +1,10 @@
 from datetime import date
 
 import pytest
+from django.db import IntegrityError, transaction
 from rest_framework.test import APIClient
+
+from integrations.models import SourceSystem
 
 from .models import Application, Enrolment, School, StudentProfile, Term
 
@@ -257,3 +260,58 @@ def test_one_enrolment_per_student_per_term(client, setup):
     payload = {"student": person.pk, "school": setup["buwaate"].pk, "term": setup["term3"].pk}
 
     assert client.post("/api/academics/enrolments/", payload, format="json").status_code == 400
+
+
+# --- Source tracking ----------------------------------------------------------------
+
+@pytest.fixture
+def smis():
+    return SourceSystem.objects.create(code="smis", name="School Management Information System")
+
+
+@pytest.mark.django_db
+def test_a_source_record_can_only_be_stored_once(smis):
+    StudentProfile.objects.create(
+        student_number="S1", gender="male", nationality="Ugandan",
+        source_system=smis, external_id="ADM-001",
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        StudentProfile.objects.create(
+            student_number="S2", gender="male", nationality="Ugandan",
+            source_system=smis, external_id="ADM-001",
+        )
+
+
+@pytest.mark.django_db
+def test_the_same_id_is_allowed_in_different_sources(smis):
+    other = SourceSystem.objects.create(code="hr", name="HR system")
+    for number, source in (("S1", smis), ("S2", other)):
+        StudentProfile.objects.create(
+            student_number=number, gender="male", nationality="Ugandan",
+            source_system=source, external_id="ADM-001",
+        )
+
+    assert StudentProfile.objects.filter(external_id="ADM-001").count() == 2
+
+
+@pytest.mark.django_db
+def test_hand_entered_rows_without_an_external_id_never_clash():
+    student("H1")
+    student("H2")
+
+    assert StudentProfile.objects.filter(external_id="").count() == 2
+
+
+@pytest.mark.django_db
+def test_source_fields_cannot_be_set_through_the_api(client, smis):
+    payload = {
+        "student_number": "S9", "gender": "female", "nationality": "Kenyan",
+        "source_system": smis.pk, "external_id": "ADM-999",
+    }
+    response = client.post("/api/academics/student-profiles/", payload, format="json")
+
+    assert response.status_code == 201
+    saved = StudentProfile.objects.get(student_number="S9")
+    assert (saved.source_system, saved.external_id) == (None, "")
+

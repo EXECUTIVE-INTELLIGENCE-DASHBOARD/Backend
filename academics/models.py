@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.db import models
 
+from integrations.models import SourceTrackedModel, source_record_constraint
+
 """
 The following are the models picked from
 the data categories document.
@@ -132,7 +134,7 @@ class Term(models.Model):
         return f"Term {self.number}, {self.academic_year}"
 
 
-class StudentProfile(models.Model):
+class StudentProfile(SourceTrackedModel):
     """A student, holding only what the enrolment and retention screens need."""
 
     class Gender(models.TextChoices):
@@ -146,12 +148,13 @@ class StudentProfile(models.Model):
 
     class Meta:
         ordering = ["student_number"]
+        constraints = [source_record_constraint()]
 
     def __str__(self):
         return self.student_number
 
 
-class Enrolment(models.Model):
+class Enrolment(SourceTrackedModel):
     """A student's place at a school for one term."""
 
     class Status(models.TextChoices):
@@ -184,6 +187,7 @@ class Enrolment(models.Model):
         ordering = ["term", "student"]
         constraints = [
             models.UniqueConstraint(fields=["student", "term"], name="unique_enrolment_per_term"),
+            source_record_constraint(),
             # a withdrawal always has a reason, and only withdrawals have one
             models.CheckConstraint(
                 condition=(
@@ -198,7 +202,7 @@ class Enrolment(models.Model):
         return f"{self.student} - {self.school} ({self.term})"
 
 
-class Application(models.Model):
+class Application(SourceTrackedModel):
     """An admissions application, recorded at the furthest stage it has reached."""
 
     class Stage(models.TextChoices):
@@ -221,6 +225,7 @@ class Application(models.Model):
 
     class Meta:
         ordering = ["-applied_on"]
+        constraints = [source_record_constraint()]
 
     def __str__(self):
         return f"{self.reference} ({self.get_stage_display()})"
