@@ -69,3 +69,29 @@ class StagedRecord(models.Model):
 
     def __str__(self):
         return f"{self.record_type} {self.external_id} ({self.get_status_display()})"
+
+
+def source_record_constraint():
+    """One row per record in each source system. Rows without an external ID (entered by
+    hand) are left out, so they never clash. Add it to a model's Meta.constraints."""
+    return models.UniqueConstraint(
+        fields=["source_system", "external_id"],
+        condition=~models.Q(external_id=""),
+        name="%(app_label)s_%(class)s_unique_source_record",
+    )
+
+
+class SourceTrackedModel(models.Model):
+    """Fields recording where a row came from. A core model inherits these so that a
+    re-run sync updates its rows instead of duplicating them, and any number on a
+    dashboard can be traced back to the record in the source system."""
+
+    # empty for rows entered by hand
+    source_system = models.ForeignKey(
+        SourceSystem, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    external_id = models.CharField(max_length=100, blank=True)  # the row's ID in that system
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        abstract = True
