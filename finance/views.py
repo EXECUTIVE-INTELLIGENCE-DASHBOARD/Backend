@@ -1,3 +1,4 @@
+
 """Finance API views for CRUD operations and executive dashboard calculations."""
 
 from datetime import timedelta
@@ -48,6 +49,7 @@ from .serializers import (
     ExpenseTransactionSerializer,
     FeeInvoiceSerializer,
     FeePaymentSerializer,
+    FinanceDashboardResponseSerializer,
     FiscalYearSerializer,
     LiabilitySerializer,
     LoanRepaymentSerializer,
@@ -57,25 +59,26 @@ from .serializers import (
     RevenueRecordSerializer,
 )
 
-# Shared configuration and reusable aggregation helpers.
+BUDGET_TAG = "Finance - Budgets"
+LIABILITY_TAG = "Finance - Liabilities"
+REVENUE_TAG = "Finance - Revenue"
 
-FINANCE_TAG = "Finance"
 ZERO = Decimal("0.00")
 MONEY_FIELD = DecimalField(max_digits=20, decimal_places=2)
 
 
 def _sum(queryset, field):
-    # Return a monetary total, using zero when no records match.
+    """Return a monetary total, using zero when no records match."""
     return queryset.aggregate(total=Sum(field))["total"] or ZERO
 
 
 def _percentage(part, whole):
-    # Calculate a percentage without dividing by zero.
+    """Calculate a percentage without dividing by zero."""
     return round(float(part) * 100 / float(whole), 2) if whole else 0
 
 
 def _filters(queryset, params, fields):
-    # Apply supplied query parameters as exact field filters.
+    """Apply supplied query parameters as exact field filters."""
     filters = {
         field: params[field]
         for field in fields
@@ -85,7 +88,7 @@ def _filters(queryset, params, fields):
 
 
 def _date_filters(queryset, params, field):
-    # Apply optional inclusive start and end date filters.
+    """Apply optional inclusive start and end date filters."""
     start_date = params.get("start_date")
     end_date = params.get("end_date")
 
@@ -99,7 +102,7 @@ def _date_filters(queryset, params, field):
 
 
 def _group_sum(queryset, *fields, amount_field="amount"):
-    # Group records and return totals and record counts for dashboard charts.
+    """Group records and return totals and record counts for dashboard charts."""
     return list(
         queryset.values(*fields)
         .annotate(
@@ -115,12 +118,12 @@ def _group_sum(queryset, *fields, amount_field="amount"):
 
 
 def _today():
-    # Return today's date in the configured Django timezone.
+    """Return today's date in the configured Django timezone."""
     return timezone.localdate()
 
 
 def _liabilities():
-    # Annotate liabilities with the unpaid amount.
+    """Annotate liabilities with the unpaid amount."""
     return (
         Liability.objects.annotate(
             outstanding=ExpressionWrapper(
@@ -132,42 +135,21 @@ def _liabilities():
     )
 
 
-def _invoice_balances():
-    # Calculate unpaid invoice balances, excluding void invoices.
-    return (
-        FeeInvoice.objects.exclude(status=FeeInvoice.Status.VOID)
-        .annotate(
-            paid_total=Coalesce(
-                Sum("payments__amount"),
-                Value(ZERO),
-                output_field=MONEY_FIELD,
-            )
-        )
-        .annotate(
-            outstanding=ExpressionWrapper(
-                F("amount") - F("paid_total"),
-                output_field=MONEY_FIELD,
-            )
-        )
-        .filter(outstanding__gt=ZERO)
-    )
+# CRUD viewsets.
 
-
-# CRUD viewsets for finance records.
-
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class FiscalYearViewSet(viewsets.ModelViewSet):
     queryset = FiscalYear.objects.all()
     serializer_class = FiscalYearSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class DepartmentBudgetViewSet(viewsets.ModelViewSet):
     queryset = DepartmentBudget.objects.select_related(
         "department",
@@ -176,7 +158,7 @@ class DepartmentBudgetViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentBudgetSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class MonthlyDepartmentBudgetViewSet(viewsets.ModelViewSet):
     queryset = MonthlyDepartmentBudget.objects.select_related(
         "department",
@@ -185,7 +167,7 @@ class MonthlyDepartmentBudgetViewSet(viewsets.ModelViewSet):
     serializer_class = MonthlyDepartmentBudgetSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class ExpenseTransactionViewSet(viewsets.ModelViewSet):
     queryset = ExpenseTransaction.objects.select_related(
         "department",
@@ -194,19 +176,19 @@ class ExpenseTransactionViewSet(viewsets.ModelViewSet):
     serializer_class = ExpenseTransactionSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[LIABILITY_TAG])
 class CreditorViewSet(viewsets.ModelViewSet):
     queryset = Creditor.objects.all()
     serializer_class = CreditorSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[LIABILITY_TAG])
 class LiabilityViewSet(viewsets.ModelViewSet):
     queryset = Liability.objects.select_related("creditor").all()
     serializer_class = LiabilitySerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[REVENUE_TAG])
 class RevenueRecordViewSet(viewsets.ModelViewSet):
     queryset = RevenueRecord.objects.select_related(
         "fiscal_year",
@@ -215,7 +197,7 @@ class RevenueRecordViewSet(viewsets.ModelViewSet):
     serializer_class = RevenueRecordSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[REVENUE_TAG])
 class MonthlyRevenueTargetViewSet(viewsets.ModelViewSet):
     queryset = MonthlyRevenueTarget.objects.select_related(
         "fiscal_year",
@@ -224,7 +206,7 @@ class MonthlyRevenueTargetViewSet(viewsets.ModelViewSet):
     serializer_class = MonthlyRevenueTargetSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[REVENUE_TAG])
 class FeeInvoiceViewSet(viewsets.ModelViewSet):
     queryset = FeeInvoice.objects.select_related(
         "school",
@@ -233,45 +215,46 @@ class FeeInvoiceViewSet(viewsets.ModelViewSet):
     serializer_class = FeeInvoiceSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[REVENUE_TAG])
 class FeePaymentViewSet(viewsets.ModelViewSet):
     queryset = FeePayment.objects.select_related("invoice").all()
     serializer_class = FeePaymentSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class BankAccountViewSet(viewsets.ModelViewSet):
     queryset = BankAccount.objects.select_related("school").all()
     serializer_class = BankAccountSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class CashMovementViewSet(viewsets.ModelViewSet):
     queryset = CashMovement.objects.select_related("account").all()
     serializer_class = CashMovementSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[BUDGET_TAG])
 class CashForecastViewSet(viewsets.ModelViewSet):
     queryset = CashForecast.objects.select_related("school").all()
     serializer_class = CashForecastSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[LIABILITY_TAG])
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.select_related("school", "creditor").all()
     serializer_class = LoanSerializer
 
 
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(tags=[LIABILITY_TAG])
 class LoanRepaymentViewSet(viewsets.ModelViewSet):
     queryset = LoanRepayment.objects.select_related("loan").all()
     serializer_class = LoanRepaymentSerializer
 
 
-# Expense dashboard: expenditure KPIs, categories, departments, and budgets.
-
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(
+    tags=[BUDGET_TAG],
+    responses=FinanceDashboardResponseSerializer,
+)
 class ExpenseDashboardView(APIView):
     def get(self, request):
         today = _today()
@@ -363,9 +346,10 @@ class ExpenseDashboardView(APIView):
         )
 
 
-# Revenue dashboard: billing, collections, arrears, revenue streams, and targets.
-
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(
+    tags=[REVENUE_TAG],
+    responses=FinanceDashboardResponseSerializer,
+)
 class RevenueDashboardView(APIView):
     def get(self, request):
         params = request.query_params
@@ -464,9 +448,10 @@ class RevenueDashboardView(APIView):
         )
 
 
-# Liability dashboard: outstanding amounts, upcoming payments, and creditors.
-
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(
+    tags=[LIABILITY_TAG],
+    responses=FinanceDashboardResponseSerializer,
+)
 class LiabilityDashboardView(APIView):
     def get(self, request):
         today = _today()
@@ -484,14 +469,8 @@ class LiabilityDashboardView(APIView):
         return Response(
             {
                 "summary": {
-                    "total_outstanding": _sum(
-                        liabilities,
-                        "outstanding",
-                    ),
-                    "due_within_30_days": _sum(
-                        due_soon,
-                        "outstanding",
-                    ),
+                    "total_outstanding": _sum(liabilities, "outstanding"),
+                    "due_within_30_days": _sum(due_soon, "outstanding"),
                     "overdue": _sum(overdue, "outstanding"),
                     "liability_count": liabilities.count(),
                     "overdue_count": overdue.count(),
@@ -525,9 +504,10 @@ class LiabilityDashboardView(APIView):
         )
 
 
-# Procurement dashboard: spend, categories, settlement status, and vendors.
-
-@extend_schema(tags=[FINANCE_TAG])
+@extend_schema(
+    tags=["Procurement"],
+    responses=FinanceDashboardResponseSerializer,
+)
 class ProcurementDashboardView(APIView):
     def get(self, request):
         params = request.query_params

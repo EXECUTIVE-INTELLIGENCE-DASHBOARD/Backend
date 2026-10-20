@@ -95,10 +95,7 @@ class LiabilitySerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate(self, attrs):
-        amount = attrs.get(
-            "amount",
-            getattr(self.instance, "amount", None),
-        )
+        amount = attrs.get("amount", getattr(self.instance, "amount", None))
         paid_amount = attrs.get(
             "paid_amount",
             getattr(self.instance, "paid_amount", None),
@@ -195,14 +192,8 @@ class FeeInvoiceSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         amount = attrs.get("amount", getattr(self.instance, "amount", None))
-        issue_date = attrs.get(
-            "issue_date",
-            getattr(self.instance, "issue_date", None),
-        )
-        due_date = attrs.get(
-            "due_date",
-            getattr(self.instance, "due_date", None),
-        )
+        issue_date = attrs.get("issue_date", getattr(self.instance, "issue_date", None))
+        due_date = attrs.get("due_date", getattr(self.instance, "due_date", None))
 
         if amount is not None and amount < 0:
             raise serializers.ValidationError(
@@ -336,10 +327,7 @@ class LoanSerializer(serializers.ModelSerializer):
             "annual_interest_rate",
             getattr(self.instance, "annual_interest_rate", None),
         )
-        start_date = attrs.get(
-            "start_date",
-            getattr(self.instance, "start_date", None),
-        )
+        start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
         maturity_date = attrs.get(
             "maturity_date",
             getattr(self.instance, "maturity_date", None),
@@ -403,7 +391,6 @@ class LoanRepaymentSerializer(serializers.ModelSerializer):
             "principal_paid",
             "interest_paid",
         )
-
         values = {
             field: attrs.get(field, getattr(self.instance, field, None))
             for field in fields_to_check
@@ -449,3 +436,85 @@ class LoanRepaymentSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+
+class FinanceDashboardSummarySerializer(serializers.Serializer):
+    total_spend = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    transaction_count = serializers.IntegerField(required=False)
+    average_transaction = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    budget_total = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    budget_remaining = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    budget_used_percent = serializers.FloatField(required=False)
+    over_budget = serializers.BooleanField(required=False)
+
+    billed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    realized = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    arrears = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    collection_rate = serializers.FloatField(required=False)
+    revenue_records = serializers.IntegerField(required=False)
+    target_total = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    target_realized = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+
+    total_outstanding = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    due_within_30_days = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    overdue = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    liability_count = serializers.IntegerField(required=False)
+    overdue_count = serializers.IntegerField(required=False)
+
+    paid = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    committed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+    outstanding = serializers.DecimalField(
+        max_digits=20, decimal_places=2, required=False
+    )
+
+
+class FinanceDashboardResponseSerializer(serializers.Serializer):
+    period = serializers.DictField(required=False)
+    summary = FinanceDashboardSummarySerializer()
+    spending_by_category = serializers.ListField(required=False)
+    spending_by_department = serializers.ListField(required=False)
+    department_budgets = serializers.ListField(required=False)
+    monthly_spending = serializers.ListField(required=False)
+
+    revenue_by_stream = serializers.ListField(required=False)
+    billed_by_stream = serializers.ListField(required=False)
+    revenue_by_school = serializers.ListField(required=False)
+    monthly_targets = serializers.ListField(required=False)
+    monthly_revenue = serializers.ListField(required=False)
+
+    by_category = serializers.ListField(required=False)
+    by_status = serializers.ListField(required=False)
+    top_creditors = serializers.ListField(required=False)
+    as_of_date = serializers.DateField(required=False)
+
+    spend_by_category = serializers.ListField(required=False)
+    spend_by_status = serializers.ListField(required=False)
+    top_vendors = serializers.ListField(required=False)
