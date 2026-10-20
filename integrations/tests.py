@@ -12,6 +12,7 @@ from .cleaning import (
     parse_date,
     parse_term_number,
 )
+from .connectors.smis import MockSMISConnector
 from .models import ImportRun, SourceSystem, StagedRecord
 
 
@@ -139,3 +140,76 @@ def test_map_choice_uses_default_for_unrecognised_values():
     assert map_choice("Relocated abroad", reasons, "reason", default="other") == "other"
     with pytest.raises(CleaningError):
         map_choice("Relocated abroad", reasons, "reason")
+
+
+# --- Mock SMIS connector ------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def smis_records():
+    connector = MockSMISConnector(scale=0.05)
+    return connector, list(connector.fetch())
+
+
+def records_of(records, record_type):
+    return [payload for kind, _, payload in records if kind == record_type]
+
+
+def test_mock_smis_is_repeatable():
+    first = list(MockSMISConnector(scale=0.05).fetch())
+    second = list(MockSMISConnector(scale=0.05).fetch())
+
+    assert first == second
+
+
+def test_mock_smis_yields_every_record_type(smis_records):
+    _, records = smis_records
+    kinds = [kind for kind, _, _ in records]
+
+    assert kinds.count("school") == 6
+    assert kinds.count("term") == 4
+    assert {"student", "enrolment", "application"} <= set(kinds)
+    assert all(external_id for _, external_id, _ in records)
+
+
+def test_mock_smis_uses_messy_spellings(smis_records):
+    _, records = smis_records
+    campuses = {p["Campus"] for p in records_of(records, "school")}
+
+    assert campuses - {"kibuli", "buwaate", "annex"}  # not already clean
+    assert {normalise_campus(c) for c in campuses} <= {"kibuli", "buwaate", "annex"}
+
+
+def test_mock_smis_broken_students_are_exactly_the_injected_ones(smis_records):
+    connector, records = smis_records
+    unique = {p["AdmissionNo"]: p for p in records_of(records, "student")}
+    broken = 0
+    for payload in unique.values():
+        try:
+            normalise_gender(payload["Sex"])
+            parse_date(payload["DOB"])
+            normalise_nationality(payload["Nationality"])
+        except CleaningError:
+            broken += 1
+
+    expected = (connector.injected.get("student_missing_sex", 0)
+                + connector.injected.get("student_impossible_dob", 0))
+    assert broken == expected
+
+
+def test_mock_smis_includes_duplicates_and_orphans(smis_records):
+    connector, records = smis_records
+    students = records_of(records, "student")
+    known = {p["AdmissionNo"] for p in students}
+    orphans = [p for p in records_of(records, "enrolment") if p["AdmissionNo"] not in known]
+
+    assert len(students) - len(known) == connector.injected["duplicate_student"]
+    assert len(orphans) == connector.injected["enrolment_unknown_student"]
+    assert connector.injected["application_unknown_stage"] >= 1
+
+
+def test_mock_smis_terms_and_dates_are_cleanable(smis_records):
+    _, records = smis_records
+    for payload in records_of(records, "term"):
+        assert 1 <= parse_term_number(payload["Term"]) <= 3
+        assert parse_date(payload["StartDate"]) < parse_date(payload["EndDate"])
+
