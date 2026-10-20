@@ -66,6 +66,9 @@ class StaffSerializer(serializers.ModelSerializer):
 
 # --- Enrolment & retention ------------------------------------------------------
 
+# Set by the data pipeline only, never through the API.
+SOURCE_FIELDS = ("source_system", "external_id", "last_synced_at")
+
 class SchoolSerializer(serializers.ModelSerializer):
     campus_display = serializers.CharField(source="get_campus_display", read_only=True)
 
@@ -91,6 +94,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentProfile
         fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
 
 
 class EnrolmentSerializer(serializers.ModelSerializer):
@@ -103,6 +107,7 @@ class EnrolmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Enrolment
         fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
 
     def validate(self, attrs):
         status = attrs.get("status", getattr(self.instance, "status", Enrolment.Status.ACTIVE))
@@ -124,6 +129,7 @@ class ApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Application
         fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
 
 
 # Query parameters shared by the enrolment and retention dashboards.
