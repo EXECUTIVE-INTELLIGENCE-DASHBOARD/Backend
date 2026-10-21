@@ -24,6 +24,7 @@ class Facility(models.Model):
     class Campus(models.TextChoices):
         KIBULI = "kibuli", "Kibuli"
         BUWAATE = "buwaate", "Buwaate"
+        ANNEX = "annex", "Annex Preschool"
 
     name = models.CharField(max_length=150)  # display name, e.g. "Science Block B"
     # which of the two campuses this facility sits on
@@ -105,7 +106,8 @@ class WorkforceUnit(models.Model):
     class Campus(models.TextChoices):
         KIBULI = "kibuli", "Kibuli"
         BUWAATE = "buwaate", "Buwaate"
-        MULTI_CAMPUS = "multi_campus", "Multi-Campus"  # unit serves both campuses
+        ANNEX = "annex", "Annex Preschool"
+        MULTI_CAMPUS = "multi_campus", "Multi-Campus"  # unit serves more than one campus
 
     name = models.CharField(max_length=150, unique=True)  # e.g. "Academic & Curriculum Instruction"
     # nature of staff; teaching vs the rest drives the staffing ratio

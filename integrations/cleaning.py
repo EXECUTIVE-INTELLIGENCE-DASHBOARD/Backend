@@ -6,6 +6,7 @@ is rejected rather than silently changed.
 """
 import re
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 
 class CleaningError(ValueError):
@@ -126,3 +127,18 @@ def map_choice(value, synonyms, field, default=None):
         if default is not None and clean_text(value):
             return default
         raise
+
+
+def parse_money(value, field="amount"):
+    """'UGX 1,500,000', '1,500,000.00' or 1500000 → Decimal('1500000.00'). Rejects
+    negative or unreadable amounts."""
+    text = re.sub(r"(?i)\b(ugx|ush|shs)\b|[,\s]", "", clean_text(value))
+    if not text:
+        raise CleaningError(f"{field} is missing")
+    try:
+        amount = Decimal(text)
+    except InvalidOperation:
+        raise CleaningError(f"{field} '{clean_text(value)}' is not an amount") from None
+    if amount < 0:
+        raise CleaningError(f"{field} '{clean_text(value)}' is negative")
+    return amount.quantize(Decimal("0.01"))
