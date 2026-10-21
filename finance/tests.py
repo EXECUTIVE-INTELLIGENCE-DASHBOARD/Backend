@@ -1,17 +1,16 @@
-
-# Create your tests here.
-
 """Tests for the four executive finance dashboards."""
 
 from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from finance.models import (
     Creditor,
     Department,
+    DepartmentBudget,
     ExpenseTransaction,
     FiscalYear,
     Liability,
@@ -24,6 +23,13 @@ LIABILITY_URL = "/api/finance/liability/dashboard/"
 REVENUE_URL = "/api/finance/revenue/dashboard/"
 PROCUREMENT_URL = "/api/finance/procurement/dashboard/"
 EXPENSE_URL = "/api/finance/expense/dashboard/"
+
+ALL_URLS = [LIABILITY_URL, REVENUE_URL, PROCUREMENT_URL, EXPENSE_URL]
+
+# The expense dashboard defaults to "this year so far", so tests that use
+# fixed dates pin the period to stay correct whenever they are run.
+YEAR_2026 = {"start_date": "2026-01-01", "end_date": "2026-12-31"}
+OCTOBER_2026 = {"start_date": "2026-10-01", "end_date": "2026-10-31"}
 
 
 @pytest.fixture
@@ -51,7 +57,12 @@ def setup():
 
 
 def create_expense(
-        department, reference, amount, expense_date=None, category="utilities_maintenance"):
+    department,
+    reference,
+    amount,
+    expense_date=None,
+    category="utilities_maintenance",
+):
     # Create an expense using the details supplied by each test.
     return ExpenseTransaction.objects.create(
         department=department,
@@ -76,7 +87,29 @@ def create_revenue(fiscal_year, billed, realized, stream="tuition", billing_date
     )
 
 
+# Query parameter validation (applies to every dashboard).
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url", ALL_URLS)
+def test_dashboards_reject_invalid_dates(client, url):
+    # A malformed date should give a clear 400 error, not a server crash.
+    response = client.get(url, {"start_date": "banana"})
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url", [REVENUE_URL, EXPENSE_URL])
+def test_dashboards_reject_invalid_school_id(client, url):
+    # A school id must be a number.
+    response = client.get(url, {"school_id": "abc"})
+
+    assert response.status_code == 400
+
+
 # Liability management dashboard tests.
+
 
 @pytest.mark.django_db
 def test_liability_dashboard_returns_expected_sections(client):
@@ -102,7 +135,7 @@ def test_liability_dashboard_returns_expected_sections(client):
 @pytest.mark.django_db
 def test_liability_dashboard_calculates_outstanding(client, setup):
     # Check that the dashboard subtracts payments already made.
-    today = date.today()
+    today = timezone.localdate()
 
     Liability.objects.create(
         creditor=setup["creditor"],
@@ -128,7 +161,7 @@ def test_liability_dashboard_calculates_outstanding(client, setup):
 @pytest.mark.django_db
 def test_liability_dashboard_calculates_overdue_amount(client, setup):
     # Check that unpaid amounts past their due date count as overdue.
-    today = date.today()
+    today = timezone.localdate()
 
     Liability.objects.create(
         creditor=setup["creditor"],
@@ -148,7 +181,31 @@ def test_liability_dashboard_calculates_overdue_amount(client, setup):
     assert body["summary"]["overdue_count"] == 1
 
 
+@pytest.mark.django_db
+def test_liability_dashboard_ignores_fully_paid_liabilities(client, setup):
+    # A liability with nothing left to pay should not be counted.
+    today = timezone.localdate()
+
+    Liability.objects.create(
+        creditor=setup["creditor"],
+        category="current_payables",
+        status="paid",
+        amount=Decimal("50000.00"),
+        paid_amount=Decimal("50000.00"),
+        currency="UGX",
+        issued_date=today - timedelta(days=30),
+        due_date=today - timedelta(days=5),
+        description="Settled supplier invoice",
+    )
+
+    body = client.get(LIABILITY_URL, {"currency": "UGX"}).json()
+
+    assert body["summary"]["total_outstanding"] == 0
+    assert body["summary"]["liability_count"] == 0
+
+
 # Revenue dashboard tests.
+
 
 @pytest.mark.django_db
 def test_revenue_dashboard_returns_expected_sections(client):
@@ -161,7 +218,9 @@ def test_revenue_dashboard_returns_expected_sections(client):
     assert "summary" in body
     assert "revenue_by_stream" in body
     assert "billed_by_stream" in body
-    assert "revenue_by_school" in body
+    assert "campuses" in body
+    assert "ageing" in body
+    assert "growth_percent" in body
     assert "monthly_targets" in body
     assert "monthly_revenue" in body
 
@@ -209,7 +268,7 @@ def test_revenue_dashboard_calculates_monthly_targets(client, setup):
 
     assert target["target"] == 700000
     assert target["realized"] == 600000
-    assert target["achievement_percent"] == pytest.approx(85.71)
+    assert target["achievement_percent"] == pytest.approx(85.7)
     assert target["variance"] == -100000
     assert body["summary"]["target_total"] == 700000
     assert body["summary"]["target_realized"] == 600000
@@ -231,17 +290,82 @@ def test_revenue_dashboard_filters_by_billing_date(client, setup):
         billing_date=date(2026, 10, 1),
     )
 
-    body = client.get(
-        REVENUE_URL,
-        {"start_date": "2026-10-01", "end_date": "2026-10-31"},
-    ).json()
+    body = client.get(REVENUE_URL, OCTOBER_2026).json()
 
     assert body["summary"]["billed"] == 300000
     assert body["summary"]["realized"] == 200000
     assert body["summary"]["revenue_records"] == 1
 
 
+@pytest.mark.django_db
+def test_revenue_dashboard_calculates_growth(client, setup):
+    # September collected 400,000 and October collected 200,000: a 50% drop.
+    create_revenue(
+        setup["fiscal_year"],
+        500000,
+        400000,
+        billing_date=date(2026, 9, 1),
+    )
+    create_revenue(
+        setup["fiscal_year"],
+        300000,
+        200000,
+        billing_date=date(2026, 10, 1),
+    )
+
+    body = client.get(REVENUE_URL, OCTOBER_2026).json()
+
+    assert body["growth_percent"] == -50.0
+
+
+@pytest.mark.django_db
+def test_revenue_dashboard_growth_is_null_without_dates(client, setup):
+    # Growth needs a start and end date to find the previous period.
+    create_revenue(setup["fiscal_year"], 300000, 200000)
+
+    body = client.get(REVENUE_URL, {"currency": "UGX"}).json()
+
+    assert body["growth_percent"] is None
+
+
+@pytest.mark.django_db
+def test_revenue_dashboard_growth_is_null_without_previous_revenue(client, setup):
+    # You cannot measure growth from a previous period that collected nothing.
+    create_revenue(setup["fiscal_year"], 300000, 200000)
+
+    body = client.get(REVENUE_URL, OCTOBER_2026).json()
+
+    assert body["growth_percent"] is None
+
+
+@pytest.mark.django_db
+def test_revenue_dashboard_ageing_returns_four_buckets(client):
+    # With no overdue invoices, every bucket is still returned with zero totals.
+    body = client.get(REVENUE_URL).json()
+
+    assert [bucket["id"] for bucket in body["ageing"]] == [
+        "0-30",
+        "31-60",
+        "61-90",
+        "90-plus",
+    ]
+    assert all(bucket["amount"] == 0 for bucket in body["ageing"])
+    assert all(bucket["accounts"] == 0 for bucket in body["ageing"])
+
+
+@pytest.mark.django_db
+def test_revenue_dashboard_campuses_skip_records_without_a_school(client, setup):
+    # Campus rows only include revenue that is linked to a school.
+    create_revenue(setup["fiscal_year"], 300000, 200000)
+
+    body = client.get(REVENUE_URL, {"currency": "UGX"}).json()
+
+    assert body["summary"]["billed"] == 300000
+    assert body["campuses"] == []
+
+
 # Procurement financials dashboard tests.
+
 
 @pytest.mark.django_db
 def test_procurement_dashboard_returns_expected_sections(client):
@@ -328,16 +452,14 @@ def test_procurement_dashboard_filters_by_transaction_date(client, setup):
             description="Test procurement transaction",
         )
 
-    body = client.get(
-        PROCUREMENT_URL,
-        {"start_date": "2026-10-01", "end_date": "2026-10-31"},
-    ).json()
+    body = client.get(PROCUREMENT_URL, OCTOBER_2026).json()
 
     assert body["summary"]["total_spend"] == 50000
     assert body["summary"]["transaction_count"] == 1
 
 
 # Expense management dashboard tests.
+
 
 @pytest.mark.django_db
 def test_expense_dashboard_returns_expected_sections(client):
@@ -367,9 +489,11 @@ def test_expense_dashboard_returns_expected_sections(client):
 def test_expense_dashboard_calculates_total_spending(client, setup):
     # Check the total, average transaction amount, and spending groups.
     create_expense(setup["department"], "EXP-001", 100000, category="salaries")
-    create_expense(setup["department"], "EXP-002", 50000, category="utilities_maintenance")
+    create_expense(
+        setup["department"], "EXP-002", 50000, category="utilities_maintenance"
+    )
 
-    body = client.get(EXPENSE_URL, {"currency": "UGX"}).json()
+    body = client.get(EXPENSE_URL, {"currency": "UGX", **YEAR_2026}).json()
 
     assert body["summary"]["total_spend"] == 150000
     assert body["summary"]["transaction_count"] == 2
@@ -377,6 +501,43 @@ def test_expense_dashboard_calculates_total_spending(client, setup):
     assert len(body["spending_by_category"]) == 2
     assert len(body["spending_by_department"]) == 1
     assert body["spending_by_department"][0]["total"] == 150000
+
+
+@pytest.mark.django_db
+def test_expense_dashboard_compares_spending_with_budget(client, setup):
+    # Check how much of the department budget has been used.
+    DepartmentBudget.objects.create(
+        department=setup["department"],
+        fiscal_year=setup["fiscal_year"],
+        budget_amount=Decimal("200000.00"),
+        currency="UGX",
+    )
+    create_expense(setup["department"], "EXP-007", 150000)
+
+    body = client.get(EXPENSE_URL, {"currency": "UGX", **YEAR_2026}).json()
+
+    assert body["summary"]["budget_total"] == 200000
+    assert body["summary"]["budget_remaining"] == 50000
+    assert body["summary"]["budget_used_percent"] == 75.0
+    assert body["summary"]["over_budget"] is False
+    assert body["department_budgets"][0]["total"] == 200000
+
+
+@pytest.mark.django_db
+def test_expense_dashboard_flags_overspending(client, setup):
+    # Spending above the budget should be flagged.
+    DepartmentBudget.objects.create(
+        department=setup["department"],
+        fiscal_year=setup["fiscal_year"],
+        budget_amount=Decimal("100000.00"),
+        currency="UGX",
+    )
+    create_expense(setup["department"], "EXP-008", 150000)
+
+    body = client.get(EXPENSE_URL, {"currency": "UGX", **YEAR_2026}).json()
+
+    assert body["summary"]["budget_remaining"] == -50000
+    assert body["summary"]["over_budget"] is True
 
 
 @pytest.mark.django_db
@@ -389,7 +550,7 @@ def test_expense_dashboard_filters_by_department(client, setup):
 
     body = client.get(
         EXPENSE_URL,
-        {"department_id": setup["department"].pk, "currency": "UGX"},
+        {"department_id": setup["department"].pk, "currency": "UGX", **YEAR_2026},
     ).json()
 
     assert body["summary"]["total_spend"] == 100000
@@ -412,10 +573,7 @@ def test_expense_dashboard_filters_by_date(client, setup):
         expense_date=date(2026, 10, 10),
     )
 
-    body = client.get(
-        EXPENSE_URL,
-        {"start_date": "2026-10-01", "end_date": "2026-10-31"},
-    ).json()
+    body = client.get(EXPENSE_URL, OCTOBER_2026).json()
 
     assert body["summary"]["total_spend"] == 40000
     assert body["summary"]["transaction_count"] == 1

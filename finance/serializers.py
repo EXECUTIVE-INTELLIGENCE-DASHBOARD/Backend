@@ -518,3 +518,17 @@ class FinanceDashboardResponseSerializer(serializers.Serializer):
     spend_by_category = serializers.ListField(required=False)
     spend_by_status = serializers.ListField(required=False)
     top_vendors = serializers.ListField(required=False)
+
+class FinanceQuerySerializer(serializers.Serializer):
+    """Query parameters accepted by the finance dashboards.
+
+    Using a serializer means bad input (for example a malformed date) is
+    rejected with a clear 400 error, so the views need no error handling.
+    """
+
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    school_id = serializers.IntegerField(required=False)
+    fiscal_year_id = serializers.IntegerField(required=False)
+    department_id = serializers.IntegerField(required=False)
+    currency = serializers.CharField(max_length=3, required=False)
