@@ -236,3 +236,193 @@ class Application(SourceTrackedModel):
 
     def __str__(self):
         return f"{self.reference} ({self.get_stage_display()})"
+
+
+# --- Academic performance ---------------------------------------------------------
+# Models behind the Academic Performance screen: subjects, assessments (tests and
+# end-of-term exams) with each student's mark, syllabus coverage, and national
+# examination results (PLE, UCE, UACE).
+
+# A mark of 50% or more counts as a pass at every level. Assumed until the heads of
+# school confirm their own rule.
+PASS_MARK = 50
+
+# Grade bands per subject level, highest first: (lowest mark in the band, grade).
+# Assumed school scales, to be confirmed in the discovery interviews.
+GRADE_SCALES = {
+    "primary": [(80, "D1"), (70, "D2"), (65, "C3"), (60, "C4"), (55, "C5"), (50, "C6"),
+                (45, "P7"), (40, "P8"), (0, "F9")],
+    "o_level": [(80, "A"), (70, "B"), (60, "C"), (50, "D"), (40, "E"), (0, "U")],
+    "a_level": [(80, "A"), (70, "B"), (60, "C"), (50, "D"), (45, "E"), (35, "O"), (0, "F")],
+}
+
+
+def grade_for(level, mark):
+    """The grade a mark (0-100) earns on a subject level's scale."""
+    for lowest, grade in GRADE_SCALES[level]:
+        if mark >= lowest:
+            return grade
+    return GRADE_SCALES[level][-1][1]
+
+
+class Subject(models.Model):
+    """A subject taught at one level, e.g. Mathematics at O Level."""
+
+    class Level(models.TextChoices):
+        PRIMARY = "primary", "Primary"
+        O_LEVEL = "o_level", "O Level"  # S1-S4
+        A_LEVEL = "a_level", "A Level"  # S5-S6
+
+    class Category(models.TextChoices):
+        SCIENCE = "science", "Science"
+        ARTS = "arts", "Arts"
+
+    code = models.CharField(max_length=20)  # the SMIS subject code, e.g. "MTC"
+    name = models.CharField(max_length=100)
+    level = models.CharField(max_length=10, choices=Level.choices)
+    category = models.CharField(max_length=10, choices=Category.choices)
+
+    class Meta:
+        ordering = ["level", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["code", "level"], name="unique_subject_code_per_level"),
+            models.UniqueConstraint(fields=["name", "level"], name="unique_subject_name_per_level"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_level_display()})"
+
+
+class Assessment(SourceTrackedModel):
+    """One test or exam in one subject, sat by one class at one school in one term."""
+
+    class Kind(models.TextChoices):
+        TEST_1 = "test_1", "Test 1"
+        TEST_2 = "test_2", "Test 2"
+        END_OF_TERM = "end_of_term", "End of term"
+
+    school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="assessments")
+    term = models.ForeignKey(Term, on_delete=models.PROTECT, related_name="assessments")
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="assessments")
+    class_level = models.CharField(max_length=30)  # e.g. "P7", "S3"
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    held_on = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["term", "school", "class_level", "subject", "kind"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "term", "class_level", "subject", "kind"],
+                name="unique_assessment",
+            ),
+            source_record_constraint(),
+        ]
+
+    def __str__(self):
+        return f"{self.subject.name} {self.get_kind_display()}, {self.class_level} ({self.term})"
+
+
+class AssessmentResult(SourceTrackedModel):
+    """One student's mark in one assessment, as a percentage, with the grade it earned."""
+
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="results")
+    student = models.ForeignKey(
+        StudentProfile, on_delete=models.CASCADE, related_name="assessment_results"
+    )
+    mark = models.DecimalField(max_digits=4, decimal_places=1)  # 0.0 to 100.0
+    grade = models.CharField(max_length=3)  # on the subject level's scale, e.g. "B" or "D2"
+
+    class Meta:
+        ordering = ["assessment", "student"]
+        constraints = [
+            models.UniqueConstraint(fields=["assessment", "student"], name="unique_result"),
+            models.CheckConstraint(
+                condition=models.Q(mark__gte=0, mark__lte=100), name="result_mark_0_to_100"
+            ),
+            source_record_constraint(),
+        ]
+
+    @property
+    def passed(self):
+        return self.mark >= PASS_MARK
+
+    def __str__(self):
+        return f"{self.student} - {self.assessment}: {self.mark}% ({self.grade})"
+
+
+class SyllabusCoverage(SourceTrackedModel):
+    """How much of a subject's syllabus a class has covered so far in a term."""
+
+    school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="syllabus")
+    term = models.ForeignKey(Term, on_delete=models.PROTECT, related_name="syllabus")
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="syllabus")
+    class_level = models.CharField(max_length=30)
+    topics_planned = models.PositiveSmallIntegerField()  # topics scheduled for the term
+    topics_covered = models.PositiveSmallIntegerField()
+
+    class Meta:
+        ordering = ["term", "school", "class_level", "subject"]
+        verbose_name_plural = "syllabus coverage"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "term", "class_level", "subject"],
+                name="unique_syllabus_coverage",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(topics_covered__lte=models.F("topics_planned")),
+                name="covered_within_planned",
+            ),
+            source_record_constraint(),
+        ]
+
+    def __str__(self):
+        return f"{self.subject.name}, {self.class_level}: " \
+            f"{self.topics_covered}/{self.topics_planned}"
+
+
+class NationalExamResult(SourceTrackedModel):
+    """A candidate's overall result in a national examination: PLE at the end of P7, UCE
+    at the end of S4, UACE at the end of S6."""
+
+    class Exam(models.TextChoices):
+        PLE = "ple", "PLE"
+        UCE = "uce", "UCE"
+        UACE = "uace", "UACE"
+
+    class Division(models.TextChoices):
+        DIVISION_1 = "division_1", "Division 1"
+        DIVISION_2 = "division_2", "Division 2"
+        DIVISION_3 = "division_3", "Division 3"
+        DIVISION_4 = "division_4", "Division 4"
+        UNGRADED = "ungraded", "Ungraded (U)"
+
+    student = models.ForeignKey(
+        StudentProfile, on_delete=models.CASCADE, related_name="national_exam_results"
+    )
+    school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="national_exams")
+    exam = models.CharField(max_length=10, choices=Exam.choices)
+    year = models.PositiveSmallIntegerField()  # the year the exam was sat
+    # PLE and UCE: the division; blank for UACE
+    division = models.CharField(max_length=20, choices=Division.choices, blank=True)
+    aggregate = models.PositiveSmallIntegerField(null=True, blank=True)  # PLE only, 4 to 36
+    principal_passes = models.PositiveSmallIntegerField(null=True, blank=True)  # UACE only
+    # Worked out when the result is loaded. PLE and UCE: Division 1 to 4. UACE: at least
+    # two principal passes. Assumed rules, to be confirmed in the discovery interviews.
+    passed = models.BooleanField()
+
+    class Meta:
+        ordering = ["-year", "exam", "student"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "exam", "year"], name="unique_national_exam_result"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(aggregate__isnull=True)
+                | models.Q(aggregate__gte=4, aggregate__lte=36),
+                name="ple_aggregate_4_to_36",
+            ),
+            source_record_constraint(),
+        ]
+
+    def __str__(self):
+        return f"{self.student} - {self.get_exam_display()} {self.year}"
