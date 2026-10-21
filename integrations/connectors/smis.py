@@ -43,6 +43,13 @@ TERMS = [
 ]
 
 # How SMIS might write the same thing differently from row to row.
+SECTION_SPELLINGS = {
+    "nursery": ["Nursery", "NURSERY", "Pre-primary", "Kindergarten"],
+    "primary": ["Primary", "PRIMARY", "Pri"],
+    "secondary": ["Secondary", "SECONDARY", "Sec", "O & A Level"],
+}
+LEVEL_OF_SCHOOL = {"GHA-NK": "nursery", "GHA-NB": "nursery", "GHA-AX": "nursery",
+                   "GHA-PK": "primary", "GHA-PB": "primary", "GHA-SK": "secondary"}
 CAMPUS_SPELLINGS = {
     "kibuli": ["Kibuli Main Campus", "KIBULI MAIN ", "Kibuli", "kibuli main"],
     "buwaate": ["Buwaate Campus", "BUWAATE", "Buwate", "buwaate"],
@@ -132,6 +139,9 @@ class MockSMISConnector(Connector):
 
     def fetch(self):
         self.rng = random.Random(self.seed)
+        # Fields added later draw from their own generator, so the records that already
+        # existed keep exactly the same values for the same seed.
+        self.extra_rng = random.Random(self.seed + 1)
         self.injected = {}
         self._admission_counter = 0
         yield from self._schools()
@@ -148,6 +158,7 @@ class MockSMISConnector(Connector):
                 "SchoolName": f" {name} " if self.rng.random() < 0.2 else name,
                 "Campus": self.rng.choice(CAMPUS_SPELLINGS[campus]),
                 "Capacity": str(self._count(capacity)),
+                "Section": self.extra_rng.choice(SECTION_SPELLINGS[LEVEL_OF_SCHOOL[code]]),
             }
 
     def _terms(self):

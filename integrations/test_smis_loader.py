@@ -72,6 +72,9 @@ def test_loaded_rows_are_clean_and_traceable():
     run = sync()
 
     assert set(School.objects.values_list("campus", flat=True)) <= {"kibuli", "buwaate", "annex"}
+    # "Pre-primary", "Sec", "O & A Level" and the like were mapped onto our levels
+    assert set(School.objects.values_list("level", flat=True)) == \
+        {"nursery", "primary", "secondary"}
     assert set(StudentProfile.objects.values_list("gender", flat=True)) == {"male", "female"}
     assert not StudentProfile.objects.filter(nationality__in=["UG", "uganda", "KE"]).exists()
     assert Term.objects.count() == 4

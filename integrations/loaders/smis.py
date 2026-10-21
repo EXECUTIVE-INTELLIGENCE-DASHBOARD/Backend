@@ -38,6 +38,11 @@ STAGES = {
     "enrolled": ["enrolled", "joined"],
 }
 AT_RISK = {True: ["y", "yes", "1", "true"], False: ["n", "no", "0", "false"]}
+LEVELS = {
+    "nursery": ["nursery", "pre-primary", "preprimary", "kindergarten", "preschool"],
+    "primary": ["primary", "pri"],
+    "secondary": ["secondary", "sec", "o & a level", "o and a level"],
+}
 
 
 def _flag(value):
@@ -71,20 +76,25 @@ class SmisLoad(BaseLoad):
                     raise CleaningError("school name is missing")
                 campus = normalise_campus(p.get("Campus"))
                 capacity = _whole_number(p.get("Capacity"), "capacity")
+                # an older export may not say; the school then stays without a level
+                level = map_choice(p["Section"], LEVELS, "section") \
+                    if clean_text(p.get("Section")) else ""
             except CleaningError as exc:
                 self.reject(record, str(exc))
                 continue
             school = existing.get(name)
             if school is None:  # the board's minimum is set later, in the admin
-                school = School(name=name, campus=campus, capacity=capacity)
+                school = School(name=name, campus=campus, capacity=capacity, level=level)
                 to_create.append(school)
                 existing[name] = school
             else:
                 school.campus, school.capacity = campus, capacity
+                if level:
+                    school.level = level
                 to_update.append(school)
             self.school_by_code[record.external_id] = school
             self.loaded(record)
-        self.save(School, to_create, to_update, ["campus", "capacity"])
+        self.save(School, to_create, to_update, ["campus", "capacity", "level"])
 
     def terms(self):
         existing = {(t.academic_year, t.number): t for t in Term.objects.all()}
