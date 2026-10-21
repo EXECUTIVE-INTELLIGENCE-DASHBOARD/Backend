@@ -103,8 +103,15 @@ class School(models.Model):
         BUWAATE = "buwaate", "Buwaate"
         ANNEX = "annex", "Annex Preschool"
 
+    class Level(models.TextChoices):
+        NURSERY = "nursery", "Nursery"
+        PRIMARY = "primary", "Primary"
+        SECONDARY = "secondary", "Secondary"
+
     name = models.CharField(max_length=150, unique=True)
     campus = models.CharField(max_length=20, choices=Campus.choices)
+    # the section filter on the academic screens; blank until the source says
+    level = models.CharField(max_length=20, choices=Level.choices, blank=True)
     capacity = models.PositiveIntegerField(default=0)  # places available, for capacity utilisation
     # the board is alerted when enrolment falls below this
     minimum_enrolment = models.PositiveIntegerField(default=0)

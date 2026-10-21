@@ -32,8 +32,8 @@ admin.site.register([
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ("name", "campus", "capacity", "minimum_enrolment")
-    list_filter = ("campus",)
+    list_display = ("name", "campus", "level", "capacity", "minimum_enrolment")
+    list_filter = ("campus", "level")
 
 
 @admin.register(Term)

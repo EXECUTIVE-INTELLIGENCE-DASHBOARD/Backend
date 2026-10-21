@@ -113,9 +113,11 @@ def _resolve_term(term_id):
 
 
 def _scope(queryset, params, prefix=""):
-    """Filter a queryset by the campus and school query parameters."""
+    """Filter a queryset by the campus, level and school query parameters."""
     if params.get("campus"):
         queryset = queryset.filter(**{f"{prefix}campus": params["campus"]})
+    if params.get("level"):
+        queryset = queryset.filter(**{f"{prefix}level": params["level"]})
     if params.get("school"):
         queryset = queryset.filter(**{f"{prefix}{'pk' if not prefix else 'id'}": params["school"]})
     return queryset

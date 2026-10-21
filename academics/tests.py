@@ -315,3 +315,14 @@ def test_source_fields_cannot_be_set_through_the_api(client, smis):
     saved = StudentProfile.objects.get(student_number="S9")
     assert (saved.source_system, saved.external_id) == (None, "")
 
+
+
+@pytest.mark.django_db
+def test_schools_can_be_filtered_by_level(client):
+    School.objects.create(name="Nursery X", campus=School.Campus.KIBULI, level="nursery")
+    School.objects.create(name="Primary X", campus=School.Campus.KIBULI, level="primary")
+
+    body = client.get("/api/academics/schools/", {"level": "primary"}).json()
+
+    assert [s["name"] for s in body] == ["Primary X"]
+    assert body[0]["level"] == "primary"
