@@ -406,3 +406,184 @@ def test_a_ple_aggregate_runs_from_4_to_36(setup):
                                            exam="ple", year=2025, division="division_1",
                                            aggregate=4, passed=True)
     assert str(ok) == "P7B - PLE 2025"
+
+
+# --- Academic performance dashboard ---------------------------------------------------
+
+PERFORMANCE_URL = "/api/academics/performance/dashboard/"
+
+
+@pytest.fixture
+def performance(setup):
+    """Term 3: two S3 students sit Maths Test 1 and Test 2 at the secondary school, one
+    P7 pupil sits English Test 1 at the primary school. Term 2: the same S3 students'
+    Maths end-of-term exam. Plus syllabus coverage and 2025 national exams."""
+    t2, t3 = setup["term2"], setup["term3"]
+    primary = setup["kibuli"]
+    primary.level = School.Level.PRIMARY
+    primary.save()
+    secondary = School.objects.create(name="Secondary Kibuli", campus="kibuli",
+                                      level=School.Level.SECONDARY, capacity=10)
+    maths = Subject.objects.create(code="MTC", name="Mathematics", level="o_level",
+                                   category="science")
+    english = Subject.objects.create(code="ENG", name="English", level="primary",
+                                     category="arts")
+    s1, s2, p1 = student("S1"), student("S2", "female"), student("P1")
+
+    def sit(school, term, subject, class_level, kind, marks):
+        test = Assessment.objects.create(school=school, term=term, subject=subject,
+                                         class_level=class_level, kind=kind)
+        for pupil, mark in marks:
+            AssessmentResult.objects.create(assessment=test, student=pupil, mark=mark,
+                                            grade=grade_for(subject.level, mark))
+
+    sit(secondary, t3, maths, "S3", "test_1", [(s1, 80), (s2, 40)])
+    sit(secondary, t3, maths, "S3", "test_2", [(s1, 70), (s2, 30)])
+    sit(primary, t3, english, "P7", "test_1", [(p1, 55)])
+    sit(secondary, t2, maths, "S3", "end_of_term", [(s1, 45), (s2, 30)])
+    SyllabusCoverage.objects.create(school=secondary, term=t3, subject=maths, class_level="S3",
+                                    topics_planned=10, topics_covered=6)
+    SyllabusCoverage.objects.create(school=primary, term=t3, subject=english, class_level="P7",
+                                    topics_planned=10, topics_covered=4)
+
+    def exam(name, number, school, year, division="", passes=None, passed=True):
+        NationalExamResult.objects.create(student=student(name), school=school, exam=number,
+                                          year=year, division=division,
+                                          principal_passes=passes, passed=passed)
+
+    exam("X1", "ple", primary, 2025, "division_1")
+    exam("X2", "ple", primary, 2025, "division_4")
+    exam("X3", "ple", primary, 2025, "ungraded", passed=False)
+    exam("X4", "ple", primary, 2024, "ungraded", passed=False)  # an older sitting
+    exam("X5", "ple", primary, 2027, "division_1")  # after this academic year
+    exam("X6", "uace", secondary, 2025, passes=2)
+    return setup
+
+
+@pytest.mark.django_db
+def test_performance_summary(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk}).json()
+
+    assert body["term"]["label"] == "Term 3, 2026"
+    assert body["compared_with"]["label"] == "Term 2, 2026"
+    assert body["summary"] == {
+        "syllabus_coverage": 50.0, "topics_covered": 10, "topics_planned": 20,
+        # S1 averages 75 and P1 55 (passing); S2 averages 35
+        "student_performance": 66.7, "students_passing": 2, "students_assessed": 3,
+        "average_mark": 55.0,
+        "average_grade": None,  # no section chosen, so no single scale applies
+    }
+
+
+@pytest.mark.django_db
+def test_performance_section_filter_and_average_grade(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk,
+                                        "level": "secondary"}).json()
+
+    summary = body["summary"]
+    assert (summary["students_assessed"], summary["students_passing"]) == (2, 1)
+    assert summary["syllabus_coverage"] == 60.0
+    assert (summary["average_mark"], summary["average_grade"]) == (55.0, "D")
+    assert [e["exam"] for e in body["national_exams"]] == ["uace"]
+
+
+@pytest.mark.django_db
+def test_performance_grade_distribution(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk}).json()
+    levels = {d["level"]: d for d in body["grade_distribution"]}
+
+    assert set(levels) == {"primary", "o_level"}  # no A-level results this term
+    o_level = levels["o_level"]
+    assert o_level["students"] == 2
+    assert [g["grade"] for g in o_level["grades"]] == ["A", "B", "C", "D", "E", "U"]
+    counts = {g["grade"]: g["students"] for g in o_level["grades"]}
+    assert counts == {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0, "U": 1}
+    primary = {g["grade"]: g["students"] for g in levels["primary"]["grades"]}
+    assert primary["C5"] == 1
+
+
+@pytest.mark.django_db
+def test_performance_subjects_against_previous_term(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk}).json()
+    subjects = {s["code"]: s for s in body["subjects"]}
+
+    maths = subjects["MTC"]
+    assert (maths["average_mark"], maths["pass_rate"], maths["results"]) == (55.0, 50.0, 4)
+    assert maths["previous_pass_rate"] == 0.0  # 45 and 30 in Term 2
+    english = subjects["ENG"]
+    assert (english["pass_rate"], english["previous_pass_rate"]) == (100.0, None)
+
+
+@pytest.mark.django_db
+def test_performance_test_results(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk}).json()
+    tests = {t["subject"]: t for t in body["tests"]}
+
+    assert tests["Mathematics"] == {
+        "id": tests["Mathematics"]["id"], "subject": "Mathematics", "level": "o_level",
+        "level_display": "O Level", "test_1_average": 60.0, "test_2_average": 50.0,
+        "test_1_pass_rate": 50.0, "test_2_pass_rate": 50.0, "students_assessed": 2,
+    }
+    assert tests["English"]["test_2_average"] is None
+
+
+@pytest.mark.django_db
+def test_performance_national_exam_pass_rates(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk}).json()
+    exams = {e["exam"]: e for e in body["national_exams"]}
+
+    assert set(exams) == {"ple", "uace"}  # no UCE results recorded
+    ple = exams["ple"]
+    # the 2025 sitting: not the older 2024 one, nor 2027, which is after this year
+    assert (ple["year"], ple["sat"], ple["passed"], ple["pass_rate"]) == (2025, 3, 2, 66.7)
+    assert {d["division"]: d["candidates"] for d in ple["divisions"]} == \
+        {"division_1": 1, "division_4": 1, "ungraded": 1}
+    assert (exams["uace"]["pass_rate"], exams["uace"]["divisions"]) == (100.0, [])
+
+
+@pytest.mark.django_db
+def test_performance_campus_with_no_results(client, performance):
+    body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk,
+                                        "campus": "buwaate"}).json()
+
+    assert body["summary"]["students_assessed"] == 0
+    assert body["summary"]["student_performance"] is None
+    assert body["summary"]["syllabus_coverage"] is None
+    assert body["subjects"] == body["tests"] == body["grade_distribution"] == []
+
+
+@pytest.mark.django_db
+def test_performance_rejects_an_unknown_section(client, performance):
+    response = client.get(PERFORMANCE_URL, {"level": "university"})
+
+    assert response.status_code == 400
+    assert "level" in response.json()
+
+
+@pytest.mark.django_db
+def test_performance_returns_404_without_terms(client):
+    assert client.get(PERFORMANCE_URL).status_code == 404
+
+
+@pytest.mark.django_db
+def test_result_api_sets_the_grade_from_the_mark(client, maths_test):
+    pupil = student("S7")
+    response = client.post("/api/academics/assessment-results/", {
+        "assessment": maths_test.pk, "student": pupil.pk, "mark": "72.5", "grade": "U",
+    }, format="json")
+
+    assert response.status_code == 201
+    assert response.json()["grade"] == "B"  # worked out from 72.5, not taken as sent
+    assert response.json()["passed"] is True
+
+
+@pytest.mark.django_db
+def test_syllabus_api_rejects_more_topics_covered_than_planned(client, maths_test):
+    response = client.post("/api/academics/syllabus-coverage/", {
+        "school": maths_test.school.pk, "term": maths_test.term.pk,
+        "subject": maths_test.subject.pk, "class_level": "S3",
+        "topics_planned": 8, "topics_covered": 9,
+    }, format="json")
+
+    assert response.status_code == 400
+    assert "topics_covered" in response.json()
