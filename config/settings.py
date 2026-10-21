@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "procurement.apps.ProcurementConfig",
     "operations.apps.OperationsConfig",
     "integrations.apps.IntegrationsConfig",
+    "services.apps.ServicesConfig",
 
 ]
 
@@ -198,6 +199,12 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "Operations - Assets & Equipment",
             "description": "Asset register, condition and the asset dashboard.",
+        },
+        {"name": "Services - Sales", "description": "GSL outlets and their daily sales."},
+        {"name": "Services - Inventory", "description": "Stock levels by outlet and item."},
+        {
+            "name": "Services - Budget Utilisation",
+            "description": "Outlet budgets and spending against them.",
         },
         {"name": "System", "description": "Service health."},
     ],
