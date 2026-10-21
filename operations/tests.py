@@ -268,3 +268,32 @@ def test_asset_can_be_registered_and_filtered_by_condition(client, register):
     assert response.json()["total_value"] == "65000000.00"
     critical = client.get("/api/operations/assets/", {"condition": "critical"}).json()
     assert [asset["name"] for asset in critical] == ["Backup Generator"]
+
+
+# --- Annex Preschool campus ---------------------------------------------------------
+
+@pytest.mark.django_db
+def test_hr_dashboard_filters_by_annex_campus(client, workforce):
+    make_unit("Annex Teaching", WorkforceUnit.StaffCategory.TEACHING, WorkforceUnit.Campus.ANNEX)
+
+    body = client.get(DASHBOARD_URL, {"start": DAY_1, "end": DAY_2, "campus": "annex"}).json()
+
+    assert [unit["name"] for unit in body["units"]] == ["Annex Teaching"]
+
+
+@pytest.mark.django_db
+def test_asset_dashboard_filters_by_annex_campus(client, register):
+    power_house = Facility.objects.create(
+        name="Annex Power House",
+        campus=Facility.Campus.ANNEX,
+        facility_type=Facility.FacilityType.OTHER,
+    )
+    Asset.objects.create(
+        name="Backup Generator", category=Asset.Category.MACHINERY, facility=power_house,
+        quantity=1, unit_value=50_000_000,
+    )
+
+    body = client.get(ASSET_DASHBOARD_URL, {"campus": "annex"}).json()
+
+    assert [asset["campus_display"] for asset in body["assets"]] == ["Annex Preschool"]
+    assert body["summary"]["total_assets"] == 1
