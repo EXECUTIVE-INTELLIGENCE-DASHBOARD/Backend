@@ -1,7 +1,19 @@
 import pytest
 from rest_framework.test import APIClient
 
-from academics.models import Application, Enrolment, School, StudentProfile, Term
+from academics.models import (
+    GRADE_SCALES,
+    Application,
+    Assessment,
+    AssessmentResult,
+    Enrolment,
+    NationalExamResult,
+    School,
+    StudentProfile,
+    Subject,
+    SyllabusCoverage,
+    Term,
+)
 
 from .cleaning import CleaningError, normalise_gender, normalise_nationality, parse_date
 from .connectors.smis import MockSMISConnector
@@ -11,6 +23,8 @@ from .pipeline import run_sync
 
 SMIS_NAME = "School Management Information System"
 PERFORMANCE_TYPES = {"subject", "assessment", "result", "syllabus", "exam_result"}
+ALL_MODELS = (School, Term, StudentProfile, Enrolment, Application, Subject, Assessment,
+              AssessmentResult, SyllabusCoverage, NationalExamResult)
 
 
 def sync(scale=0.05):
@@ -39,9 +53,24 @@ def expected_rejections():
                   if kind == "enrolment" and p["AdmissionNo"] not in students)
     unknown_stage = sum(1 for kind, _, p in records
                         if kind == "application" and p["Stage"] == "Waitlisted")
-    # performance records: the loader does not handle these yet
-    performance = sum(1 for kind, _, _ in records if kind in PERFORMANCE_TYPES)
-    return duplicates + len(broken) + orphans + unknown_stage + performance, len(records)
+    # performance: repeated results, absent or impossible marks, results and exams for
+    # students that were rejected, too many topics covered, PLE aggregate 41, division X
+    results_seen, performance = set(), 0
+    for kind, external_id, p in records:
+        if kind == "result":
+            if external_id in results_seen:
+                performance += 1
+                continue
+            results_seen.add(external_id)
+            if p["Mark"] in ("ABS", "105") or p["AdmissionNo"] not in students:
+                performance += 1
+        elif kind == "syllabus":
+            performance += int(p["TopicsCovered"]) > int(p["TopicsPlanned"])
+        elif kind == "exam_result":
+            performance += (p["AdmissionNo"] not in students or p["Division"] == "X"
+                            or p["Aggregate"] == "41")
+    return (duplicates + len(broken) + orphans + unknown_stage + performance,
+            len(records))
 
 
 @pytest.mark.django_db
@@ -89,17 +118,27 @@ def test_loaded_rows_are_clean_and_traceable():
                   .values_list("withdrawal_reason", flat=True))
     assert reasons <= {"financial", "transfer", "death", "academic_performance", "other"}
     assert "other" in reasons
+    # performance: subject levels and categories mapped, every mark graded on its scale
+    assert Subject.objects.count() == 20
+    for level, scale in GRADE_SCALES.items():
+        grades = set(AssessmentResult.objects.filter(assessment__subject__level=level)
+                     .values_list("grade", flat=True))
+        assert grades and grades <= {grade for _, grade in scale}
+    assert set(Assessment.objects.values_list("kind", flat=True)) == \
+        {"test_1", "test_2", "end_of_term"}
+    assert SyllabusCoverage.objects.exists()
+    for model in (Assessment, AssessmentResult, SyllabusCoverage, NationalExamResult):
+        assert not model.objects.exclude(source_system=run.source).exists()
 
 
 @pytest.mark.django_db
 def test_running_again_updates_instead_of_duplicating():
     first = sync()
-    counts = [m.objects.count() for m in (School, Term, StudentProfile, Enrolment, Application)]
+    counts = [m.objects.count() for m in ALL_MODELS]
 
     second = sync()
 
-    assert [m.objects.count() for m in (School, Term, StudentProfile, Enrolment, Application)] \
-        == counts
+    assert [m.objects.count() for m in ALL_MODELS] == counts
     assert second.created == 0
     assert second.updated == first.created
 
@@ -183,3 +222,62 @@ def test_performance_records_leave_the_earlier_records_unchanged():
     assert all(kind not in PERFORMANCE_TYPES for kind, _, _ in records[:first_performance])
     assert {kind for kind, _, _ in records[:first_performance]} == \
         {"school", "term", "student", "enrolment", "application"}
+
+
+class TinySMIS:
+    """A hand-written SMIS export: one good record of each performance kind plus the
+    problems the loader must catch."""
+
+    source_code = "smis"
+
+    def fetch(self):
+        yield "school", "SEC", {"SchoolCode": "SEC", "SchoolName": "Secondary", "Campus": "Kibuli",
+                                "Capacity": "100", "Section": "Sec"}
+        yield "term", "2026-T3", {"TermCode": "2026-T3", "AcademicYear": "2026", "Term": "T3",
+                                  "StartDate": "14/09/2026", "EndDate": "04/12/2026"}
+        for number in ("A1", "A2", "A3"):
+            yield "student", number, {"AdmissionNo": number, "Sex": "F", "Nationality": "UG",
+                                      "DOB": "", "HomeSchool": "SEC"}
+        yield "subject", "o_level:MTC", {"SubjectCode": "MTC", "SubjectName": "Mathematics",
+                                         "Level": "O-Level", "Category": "Sciences"}
+        yield "assessment", "AS1", {"AssessmentID": "AS1", "SchoolCode": "SEC",
+                                    "TermCode": "2026-T3", "Class": "S3", "SubjectCode": "mtc",
+                                    "Kind": "BOT", "DateHeld": "30 Sep 2026"}
+        yield "assessment", "AS2", {"AssessmentID": "AS2", "SchoolCode": "SEC",
+                                    "TermCode": "2026-T3", "Class": "Baby", "SubjectCode": "MTC",
+                                    "Kind": "BOT", "DateHeld": ""}
+        for result_id, number, mark in (("R1", "A1", "67.5%"), ("R2", "A2", "ABS"),
+                                        ("R3", "A3", "105")):
+            yield "result", result_id, {"ResultID": result_id, "AssessmentID": "AS1",
+                                        "AdmissionNo": number, "Mark": mark}
+        yield "syllabus", "C1", {"CoverageID": "C1", "SchoolCode": "SEC", "TermCode": "2026-T3",
+                                 "Class": "S3", "SubjectCode": "MTC", "TopicsPlanned": "10",
+                                 "TopicsCovered": "12"}
+        exam = {"SchoolCode": "SEC", "Year": "2025", "Aggregate": "", "PrincipalPasses": ""}
+        yield "exam_result", "N1", {**exam, "ExamResultID": "N1", "AdmissionNo": "A1",
+                                    "Exam": "U.C.E", "Division": "DIV II"}
+        yield "exam_result", "N2", {**exam, "ExamResultID": "N2", "AdmissionNo": "A2",
+                                    "Exam": "P.L.E", "Division": "1", "Aggregate": "41"}
+        yield "exam_result", "N3", {**exam, "ExamResultID": "N3", "AdmissionNo": "A3",
+                                    "Exam": "UACE", "PrincipalPasses": "1"}
+
+
+@pytest.mark.django_db
+def test_performance_records_are_cleaned_graded_or_rejected_with_a_reason():
+    run = run_sync(TinySMIS(), load_smis, SMIS_NAME)
+    errors = {r.external_id: " ".join(r.errors)
+              for r in StagedRecord.objects.filter(run=run, status=StagedRecord.Status.REJECTED)}
+
+    result = AssessmentResult.objects.get()
+    assert (float(result.mark), result.grade, result.passed) == (67.5, "C", True)
+    assert result.assessment.kind == "test_1"  # "BOT"
+    assert "class 'Baby' has no graded subjects" in errors["AS2"]
+    assert "absent" in errors["R2"]
+    assert "outside 0 to 100" in errors["R3"]
+    assert "more than the 10 planned" in errors["C1"]
+    assert "PLE aggregate 41" in errors["N2"]
+
+    uce = NationalExamResult.objects.get(exam="uce")
+    assert (uce.division, uce.passed) == ("division_2", True)
+    uace = NationalExamResult.objects.get(exam="uace")
+    assert (uace.principal_passes, uace.passed) == (1, False)  # needs two principal passes
