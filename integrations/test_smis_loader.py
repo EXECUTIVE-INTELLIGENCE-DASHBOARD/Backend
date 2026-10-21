@@ -10,6 +10,7 @@ from .models import ImportRun, StagedRecord
 from .pipeline import run_sync
 
 SMIS_NAME = "School Management Information System"
+PERFORMANCE_TYPES = {"subject", "assessment", "result", "syllabus", "exam_result"}
 
 
 def sync(scale=0.05):
@@ -38,7 +39,9 @@ def expected_rejections():
                   if kind == "enrolment" and p["AdmissionNo"] not in students)
     unknown_stage = sum(1 for kind, _, p in records
                         if kind == "application" and p["Stage"] == "Waitlisted")
-    return duplicates + len(broken) + orphans + unknown_stage, len(records)
+    # performance records: the loader does not handle these yet
+    performance = sum(1 for kind, _, _ in records if kind in PERFORMANCE_TYPES)
+    return duplicates + len(broken) + orphans + unknown_stage + performance, len(records)
 
 
 @pytest.mark.django_db
@@ -149,3 +152,34 @@ def test_dashboards_work_on_synced_data():
     assert enrollment["summary"]["total_active_enrolment"] == active
     assert retention["academic_year"] == "2026"
     assert retention["summary"]["re_enrolment_rate"] is not None
+
+
+def test_mock_smis_produces_performance_records():
+    connector = MockSMISConnector(scale=0.05)
+    records = list(connector.fetch())
+    by_kind = {}
+    for kind, _, payload in records:
+        by_kind.setdefault(kind, []).append(payload)
+
+    assert PERFORMANCE_TYPES <= set(by_kind)
+    assert len(by_kind["subject"]) == 20  # 4 primary, 7 O level, 9 A level
+    # only P4-P7 and S1-S6 sit graded subjects; nursery and P1-P3 do not
+    classes = {p["Class"] for p in by_kind["assessment"]}
+    assert classes <= {"P4", "P5", "P6", "P7", "S1", "S2", "S3", "S4", "S5", "S6"}
+    # every result points at an assessment that exists
+    assessments = {p["AssessmentID"] for p in by_kind["assessment"]}
+    assert all(p["AssessmentID"] in assessments for p in by_kind["result"])
+    # national exams are sat by last year's P7, S4 and S6
+    exams = {p["Exam"].upper().replace(".", "") for p in by_kind["exam_result"]}
+    assert exams <= {"PLE", "UCE", "UACE", "O LEVEL", "A LEVEL"}
+
+
+def test_performance_records_leave_the_earlier_records_unchanged():
+    """Adding performance data must not shift the enrolment numbers already on Neon."""
+    records = list(MockSMISConnector(scale=0.05).fetch())
+    first_performance = next(i for i, (kind, _, _) in enumerate(records)
+                             if kind in PERFORMANCE_TYPES)
+
+    assert all(kind not in PERFORMANCE_TYPES for kind, _, _ in records[:first_performance])
+    assert {kind for kind, _, _ in records[:first_performance]} == \
+        {"school", "term", "student", "enrolment", "application"}
