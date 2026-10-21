@@ -6,7 +6,19 @@ from rest_framework.test import APIClient
 
 from integrations.models import SourceSystem
 
-from .models import Application, Enrolment, School, StudentProfile, Term
+from .models import (
+    Application,
+    Assessment,
+    AssessmentResult,
+    Enrolment,
+    NationalExamResult,
+    School,
+    StudentProfile,
+    Subject,
+    SyllabusCoverage,
+    Term,
+    grade_for,
+)
 
 ENROLLMENT_URL = "/api/academics/enrollment/dashboard/"
 RETENTION_URL = "/api/academics/retention/dashboard/"
@@ -326,3 +338,71 @@ def test_schools_can_be_filtered_by_level(client):
 
     assert [s["name"] for s in body] == ["Primary X"]
     assert body[0]["level"] == "primary"
+
+
+# --- Academic performance models ---------------------------------------------------
+
+@pytest.mark.parametrize("level, mark, grade", [
+    ("primary", 85, "D1"), ("primary", 50, "C6"), ("primary", 39.9, "F9"),
+    ("o_level", 70, "B"), ("o_level", 40, "E"), ("o_level", 12, "U"),
+    ("a_level", 45, "E"), ("a_level", 35, "O"), ("a_level", 34.5, "F"),
+])
+def test_grade_for_uses_the_subject_levels_scale(level, mark, grade):
+    assert grade_for(level, mark) == grade
+
+
+@pytest.fixture
+def maths_test(setup):
+    maths = Subject.objects.create(code="MTC", name="Mathematics", level="o_level",
+                                   category="science")
+    secondary = School.objects.create(name="Secondary Kibuli", campus="kibuli",
+                                      level="secondary")
+    return Assessment.objects.create(school=secondary, term=setup["term3"], subject=maths,
+                                     class_level="S3", kind=Assessment.Kind.TEST_1)
+
+
+@pytest.mark.django_db
+def test_a_mark_must_be_between_0_and_100(maths_test):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AssessmentResult.objects.create(assessment=maths_test, student=student("S1"),
+                                        mark=101, grade="A")
+
+
+@pytest.mark.django_db
+def test_a_student_has_one_result_per_assessment(maths_test):
+    pupil = student("S1")
+    result = AssessmentResult.objects.create(assessment=maths_test, student=pupil, mark=50,
+                                             grade="D")
+    assert result.passed
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AssessmentResult.objects.create(assessment=maths_test, student=pupil, mark=60,
+                                        grade="C")
+
+
+@pytest.mark.django_db
+def test_the_same_assessment_cannot_be_recorded_twice(maths_test):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Assessment.objects.create(school=maths_test.school, term=maths_test.term,
+                                  subject=maths_test.subject, class_level="S3",
+                                  kind=Assessment.Kind.TEST_1)
+
+
+@pytest.mark.django_db
+def test_syllabus_covered_cannot_exceed_planned(maths_test):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        SyllabusCoverage.objects.create(school=maths_test.school, term=maths_test.term,
+                                        subject=maths_test.subject, class_level="S3",
+                                        topics_planned=10, topics_covered=11)
+
+
+@pytest.mark.django_db
+def test_a_ple_aggregate_runs_from_4_to_36(setup):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        NationalExamResult.objects.create(student=student("P7A"), school=setup["kibuli"],
+                                          exam="ple", year=2025, division="division_1",
+                                          aggregate=3, passed=True)
+    ok = NationalExamResult.objects.create(student=student("P7B"), school=setup["kibuli"],
+                                           exam="ple", year=2025, division="division_1",
+                                           aggregate=4, passed=True)
+    assert str(ok) == "P7B - PLE 2025"

@@ -3,17 +3,22 @@ from django.contrib import admin
 from .models import (
     Academic,
     Application,
+    Assessment,
+    AssessmentResult,
     Attendance,
     Curricular,
     Enrolment,
     Events,
     GradeResult,
     Homework,
+    NationalExamResult,
     School,
     Section,
     Staff,
     Student,
     StudentProfile,
+    Subject,
+    SyllabusCoverage,
     Term,
 )
 
@@ -60,3 +65,38 @@ class ApplicationAdmin(admin.ModelAdmin):
     list_display = ("reference", "school", "term", "stage", "applied_on")
     list_filter = ("term", "school", "stage")
     search_fields = ("reference",)
+
+
+@admin.register(Subject)
+class SubjectAdmin(admin.ModelAdmin):
+    list_display = ("name", "code", "level", "category")
+    list_filter = ("level", "category")
+    search_fields = ("name", "code")
+
+
+@admin.register(Assessment)
+class AssessmentAdmin(admin.ModelAdmin):
+    list_display = ("subject", "kind", "class_level", "school", "term", "held_on")
+    list_filter = ("term", "school", "kind", "subject__level")
+
+
+@admin.register(AssessmentResult)
+class AssessmentResultAdmin(admin.ModelAdmin):
+    list_display = ("student", "assessment", "mark", "grade")
+    list_filter = ("assessment__term", "assessment__kind", "grade")
+    search_fields = ("student__student_number",)
+    list_select_related = ("student", "assessment__subject", "assessment__term")
+
+
+@admin.register(SyllabusCoverage)
+class SyllabusCoverageAdmin(admin.ModelAdmin):
+    list_display = ("subject", "class_level", "school", "term", "topics_covered", "topics_planned")
+    list_filter = ("term", "school")
+
+
+@admin.register(NationalExamResult)
+class NationalExamResultAdmin(admin.ModelAdmin):
+    list_display = ("student", "exam", "year", "division", "aggregate", "principal_passes",
+                    "passed")
+    list_filter = ("exam", "year", "division", "passed", "school")
+    search_fields = ("student__student_number",)
