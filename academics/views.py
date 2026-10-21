@@ -1,4 +1,6 @@
-from django.db.models import Count, Exists, OuterRef, Q
+import re
+
+from django.db.models import Avg, Count, Exists, OuterRef, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -7,25 +9,35 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
+    GRADE_SCALES,
+    PASS_MARK,
     Academic,
     Application,
+    Assessment,
+    AssessmentResult,
     Attendance,
     Curricular,
     Enrolment,
     Events,
     GradeResult,
     Homework,
+    NationalExamResult,
     School,
     Section,
     Staff,
     Student,
     StudentProfile,
+    Subject,
+    SyllabusCoverage,
     Term,
+    grade_for,
 )
 from .serializers import (
     AcademicDashboardQuerySerializer,
     AcademicSerializer,
     ApplicationSerializer,
+    AssessmentResultSerializer,
+    AssessmentSerializer,
     AttendanceSerializer,
     CurricularSerializer,
     EnrollmentDashboardSerializer,
@@ -33,12 +45,17 @@ from .serializers import (
     EventsSerializer,
     GradeResultSerializer,
     HomeworkSerializer,
+    NationalExamResultSerializer,
+    PerformanceDashboardQuerySerializer,
+    PerformanceDashboardSerializer,
     RetentionDashboardSerializer,
     SchoolSerializer,
     SectionSerializer,
     StaffSerializer,
     StudentProfileSerializer,
     StudentSerializer,
+    SubjectSerializer,
+    SyllabusCoverageSerializer,
     TermSerializer,
 )
 
@@ -351,3 +368,254 @@ class RetentionDashboardView(APIView):
             "withdrawal_reasons": withdrawal_reasons,
         }
         return Response(RetentionDashboardSerializer(data).data)
+
+
+# --- Academic performance -----------------------------------------------------------
+
+PERFORMANCE_TAG = "Academics - Performance"
+# the scale the overall average grade is read on when one section is chosen
+SECTION_SCALE = {School.Level.PRIMARY: "primary", School.Level.SECONDARY: "o_level"}
+TESTS = [Assessment.Kind.TEST_1, Assessment.Kind.TEST_2]
+
+
+def _one_decimal(value):
+    return round(float(value), 1) if value is not None else None
+
+
+def _latest_year(academic_year):
+    """'2026' gives 2026; '2025/2026' gives 2026."""
+    years = re.findall(r"\d{4}", academic_year)
+    return int(years[-1]) if years else None
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class SubjectViewSet(viewsets.ModelViewSet):
+    serializer_class = SubjectSerializer
+    queryset = Subject.objects.all()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        for field in ("level", "category"):
+            if self.request.query_params.get(field):
+                queryset = queryset.filter(**{field: self.request.query_params[field]})
+        return queryset
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class AssessmentViewSet(viewsets.ModelViewSet):
+    serializer_class = AssessmentSerializer
+    queryset = Assessment.objects.select_related("subject", "school", "term")
+
+    def get_queryset(self):
+        params = self.request.query_params
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
+        for field in ("term", "subject", "kind", "class_level"):
+            if params.get(field):
+                queryset = queryset.filter(**{field: params[field]})
+        return queryset
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class AssessmentResultViewSet(viewsets.ModelViewSet):
+    serializer_class = AssessmentResultSerializer
+    queryset = AssessmentResult.objects.select_related("assessment__subject", "student")
+
+    def get_queryset(self):
+        params = self.request.query_params
+        queryset = super().get_queryset()
+        for param, field in (("assessment", "assessment"), ("student", "student"),
+                             ("term", "assessment__term")):
+            if params.get(param):
+                queryset = queryset.filter(**{field: params[param]})
+        return queryset
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class SyllabusCoverageViewSet(viewsets.ModelViewSet):
+    serializer_class = SyllabusCoverageSerializer
+    queryset = SyllabusCoverage.objects.select_related("subject")
+
+    def get_queryset(self):
+        params = self.request.query_params
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
+        for field in ("term", "subject", "class_level"):
+            if params.get(field):
+                queryset = queryset.filter(**{field: params[field]})
+        return queryset
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class NationalExamResultViewSet(viewsets.ModelViewSet):
+    serializer_class = NationalExamResultSerializer
+    queryset = NationalExamResult.objects.all()
+
+    def get_queryset(self):
+        params = self.request.query_params
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
+        for field in ("exam", "year", "passed"):
+            if params.get(field):
+                queryset = queryset.filter(**{field: params[field]})
+        return queryset
+
+
+def _subject_figures(results):
+    """Average mark, result count and passes per subject."""
+    rows = results.values("assessment__subject").annotate(
+        avg=Avg("mark"), n=Count("id"), passes=Count("id", filter=Q(mark__gte=PASS_MARK))
+    )
+    return {r["assessment__subject"]: r for r in rows}
+
+
+@extend_schema(tags=[PERFORMANCE_TAG])
+class PerformanceDashboardView(APIView):
+    """Academic Performance screen for one term: syllabus coverage, the share of
+    students passing (average mark of 50% or more across their assessments), the
+    average grade, each level's grade distribution, results per subject against the
+    previous term, Test 1 and Test 2 results, and the latest PLE, UCE and UACE pass
+    rates. Defaults to the latest term that has started; filter by campus, section
+    (`level`) or school.
+    """
+
+    @extend_schema(
+        parameters=[PerformanceDashboardQuerySerializer], responses=PerformanceDashboardSerializer
+    )
+    def get(self, request):
+        query = PerformanceDashboardQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        term = _resolve_term(params.get("term"))
+        if term is None:
+            return Response({"detail": "No terms have been set up yet."}, status=404)
+        previous = (
+            Term.objects.filter(start_date__lt=term.start_date).order_by("-start_date").first()
+        )
+
+        def term_results(of_term):
+            return _scope(AssessmentResult.objects.filter(assessment__term=of_term), params,
+                          prefix="assessment__school__")
+
+        results = term_results(term)
+
+        # Summary: each student's average across all their assessments this term.
+        averages = [r["avg"] for r in results.values("student").annotate(avg=Avg("mark"))]
+        passing = sum(1 for avg in averages if avg >= PASS_MARK)
+        overall = results.aggregate(avg=Avg("mark"))["avg"]
+        scale = SECTION_SCALE.get(params.get("level"))
+        syllabus = _scope(
+            SyllabusCoverage.objects.filter(term=term), params, prefix="school__"
+        ).aggregate(planned=Sum("topics_planned"), covered=Sum("topics_covered"))
+        planned, covered = syllabus["planned"] or 0, syllabus["covered"] or 0
+
+        # Grade distribution: each student's average per subject level, on that level's scale.
+        counts = {level: {} for level in GRADE_SCALES}
+        per_level = results.values("student", "assessment__subject__level").annotate(
+            avg=Avg("mark")
+        )
+        for row in per_level:
+            level = row["assessment__subject__level"]
+            grade = grade_for(level, row["avg"])
+            counts[level][grade] = counts[level].get(grade, 0) + 1
+        grade_distribution = []
+        for level, bands in GRADE_SCALES.items():
+            students = sum(counts[level].values())
+            if not students:
+                continue
+            # best grade first, every grade listed even when nobody got it
+            grade_distribution.append({
+                "level": level, "level_display": Subject.Level(level).label,
+                "students": students,
+                "grades": [{"grade": grade, "students": counts[level].get(grade, 0),
+                            "share": _rate(counts[level].get(grade, 0), students)}
+                           for _, grade in bands],
+            })
+
+        # Subjects this term against the previous term.
+        now = _subject_figures(results)
+        before = _subject_figures(term_results(previous)) if previous else {}
+        subjects = sorted(Subject.objects.in_bulk(list(now)).values(),
+                          key=lambda s: (s.level, s.name))
+        subject_rows = []
+        for subject in subjects:
+            row, old = now[subject.pk], before.get(subject.pk)
+            subject_rows.append({
+                "id": subject.pk, "subject": subject.name, "code": subject.code,
+                "level": subject.level, "level_display": subject.get_level_display(),
+                "category": subject.category, "average_mark": _one_decimal(row["avg"]),
+                "pass_rate": _rate(row["passes"], row["n"]),
+                "previous_pass_rate": _rate(old["passes"], old["n"]) if old else None,
+                "results": row["n"],
+            })
+
+        # Test 1 and Test 2, per subject.
+        tests = results.filter(assessment__kind__in=TESTS)
+        by_kind = {}
+        for row in tests.values("assessment__subject", "assessment__kind").annotate(
+            avg=Avg("mark"), n=Count("id"), passes=Count("id", filter=Q(mark__gte=PASS_MARK))
+        ):
+            by_kind[(row["assessment__subject"], row["assessment__kind"])] = row
+        assessed = dict(tests.values_list("assessment__subject").annotate(
+            n=Count("student", distinct=True)
+        ))
+        test_rows = []
+        for subject in subjects:
+            if subject.pk not in assessed:
+                continue
+            first = by_kind.get((subject.pk, Assessment.Kind.TEST_1))
+            second = by_kind.get((subject.pk, Assessment.Kind.TEST_2))
+            test_rows.append({
+                "id": subject.pk, "subject": subject.name, "level": subject.level,
+                "level_display": subject.get_level_display(),
+                "test_1_average": _one_decimal(first["avg"]) if first else None,
+                "test_2_average": _one_decimal(second["avg"]) if second else None,
+                "test_1_pass_rate": _rate(first["passes"], first["n"]) if first else None,
+                "test_2_pass_rate": _rate(second["passes"], second["n"]) if second else None,
+                "students_assessed": assessed[subject.pk],
+            })
+
+        # National exams: the latest sitting up to this academic year.
+        exams = _scope(NationalExamResult.objects.all(), params, prefix="school__")
+        cap = _latest_year(term.academic_year)
+        if cap is not None:
+            exams = exams.filter(year__lte=cap)
+        national_exams = []
+        for exam in NationalExamResult.Exam:
+            sittings = exams.filter(exam=exam)
+            year = sittings.order_by("-year").values_list("year", flat=True).first()
+            if year is None:
+                continue
+            sat = sittings.filter(year=year)
+            divisions = (
+                sat.exclude(division="").values("division").annotate(n=Count("id"))
+                .order_by("division")
+            )
+            total = sat.count()
+            passed = sat.filter(passed=True).count()
+            national_exams.append({
+                "exam": exam, "label": exam.label, "year": year, "sat": total,
+                "passed": passed, "pass_rate": _rate(passed, total),
+                "divisions": [{
+                    "division": d["division"],
+                    "label": NationalExamResult.Division(d["division"]).label,
+                    "candidates": d["n"],
+                } for d in divisions],
+            })
+
+        data = {
+            "term": _term_summary(term),
+            "compared_with": _term_summary(previous),
+            "summary": {
+                "syllabus_coverage": _rate(covered, planned),
+                "topics_covered": covered, "topics_planned": planned,
+                "student_performance": _rate(passing, len(averages)),
+                "students_passing": passing, "students_assessed": len(averages),
+                "average_mark": _one_decimal(overall),
+                "average_grade": (
+                    grade_for(scale, overall) if scale and overall is not None else None
+                ),
+            },
+            "grade_distribution": grade_distribution,
+            "national_exams": national_exams,
+            "subjects": subject_rows,
+            "tests": test_rows,
+        }
+        return Response(PerformanceDashboardSerializer(data).data)

@@ -4,6 +4,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AcademicViewSet,
     ApplicationViewSet,
+    AssessmentResultViewSet,
+    AssessmentViewSet,
     AttendanceViewSet,
     CurricularViewSet,
     EnrollmentDashboardView,
@@ -11,12 +13,16 @@ from .views import (
     EventsViewSet,
     GradeResultViewSet,
     HomeworkViewSet,
+    NationalExamResultViewSet,
+    PerformanceDashboardView,
     RetentionDashboardView,
     SchoolViewSet,
     SectionViewSet,
     StaffViewSet,
     StudentProfileViewSet,
     StudentViewSet,
+    SubjectViewSet,
+    SyllabusCoverageViewSet,
     TermViewSet,
 )
 
@@ -35,6 +41,11 @@ router.register('terms', TermViewSet)
 router.register('student-profiles', StudentProfileViewSet)
 router.register('enrolments', EnrolmentViewSet)
 router.register('applications', ApplicationViewSet)
+router.register('subjects', SubjectViewSet)
+router.register('assessments', AssessmentViewSet)
+router.register('assessment-results', AssessmentResultViewSet)
+router.register('syllabus-coverage', SyllabusCoverageViewSet)
+router.register('national-exam-results', NationalExamResultViewSet)
 urlpatterns=[
     path(
         'academics/enrollment/dashboard/',
@@ -45,6 +56,11 @@ urlpatterns=[
         'academics/retention/dashboard/',
         RetentionDashboardView.as_view(),
         name='retention-dashboard',
+    ),
+    path(
+        'academics/performance/dashboard/',
+        PerformanceDashboardView.as_view(),
+        name='performance-dashboard',
     ),
     path('academics/', include(router.urls)),
                                                                   

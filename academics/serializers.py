@@ -3,18 +3,24 @@ from rest_framework import serializers
 from .models import (
     Academic,
     Application,
+    Assessment,
+    AssessmentResult,
     Attendance,
     Curricular,
     Enrolment,
     Events,
     GradeResult,
     Homework,
+    NationalExamResult,
     School,
     Section,
     Staff,
     Student,
     StudentProfile,
+    Subject,
+    SyllabusCoverage,
     Term,
+    grade_for,
 )
 
 
@@ -224,3 +230,151 @@ class RetentionDashboardSerializer(serializers.Serializer):
     by_nationality = NationalityRetentionSerializer(many=True)
     withdrawals_total = serializers.IntegerField()
     withdrawal_reasons = WithdrawalReasonSerializer(many=True)
+
+
+# --- Academic performance ---------------------------------------------------------
+
+class SubjectSerializer(serializers.ModelSerializer):
+    level_display = serializers.CharField(source="get_level_display", read_only=True)
+    category_display = serializers.CharField(source="get_category_display", read_only=True)
+
+    class Meta:
+        model = Subject
+        fields = '__all__'
+
+
+class AssessmentSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = Assessment
+        fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
+
+
+class AssessmentResultSerializer(serializers.ModelSerializer):
+    passed = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = AssessmentResult
+        fields = '__all__'
+        # the grade always follows from the mark, on the subject level's scale
+        read_only_fields = SOURCE_FIELDS + ("grade",)
+
+    def validate(self, attrs):
+        assessment = attrs.get("assessment", getattr(self.instance, "assessment", None))
+        mark = attrs.get("mark", getattr(self.instance, "mark", None))
+        if assessment is not None and mark is not None:
+            attrs["grade"] = grade_for(assessment.subject.level, mark)
+        return attrs
+
+
+class SyllabusCoverageSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    class Meta:
+        model = SyllabusCoverage
+        fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
+
+    def validate(self, attrs):
+        planned = attrs.get("topics_planned", getattr(self.instance, "topics_planned", None))
+        covered = attrs.get("topics_covered", getattr(self.instance, "topics_covered", None))
+        if planned is not None and covered is not None and covered > planned:
+            raise serializers.ValidationError(
+                {"topics_covered": "Topics covered can't be more than topics planned."}
+            )
+        return attrs
+
+
+class NationalExamResultSerializer(serializers.ModelSerializer):
+    exam_display = serializers.CharField(source="get_exam_display", read_only=True)
+    division_display = serializers.CharField(source="get_division_display", read_only=True)
+
+    class Meta:
+        model = NationalExamResult
+        fields = '__all__'
+        read_only_fields = SOURCE_FIELDS
+
+
+class PerformanceDashboardQuerySerializer(serializers.Serializer):
+    term = serializers.IntegerField(required=False)
+    campus = serializers.ChoiceField(choices=School.Campus.choices, required=False)
+    level = serializers.ChoiceField(choices=School.Level.choices, required=False)
+    school = serializers.IntegerField(required=False)
+
+
+class PerformanceSummarySerializer(serializers.Serializer):
+    syllabus_coverage = serializers.FloatField(allow_null=True)
+    topics_covered = serializers.IntegerField()
+    topics_planned = serializers.IntegerField()
+    student_performance = serializers.FloatField(allow_null=True)
+    students_passing = serializers.IntegerField()
+    students_assessed = serializers.IntegerField()
+    average_mark = serializers.FloatField(allow_null=True)
+    average_grade = serializers.CharField(allow_null=True)
+
+
+class GradeCountSerializer(serializers.Serializer):
+    grade = serializers.CharField()
+    students = serializers.IntegerField()
+    share = serializers.FloatField(allow_null=True)
+
+
+class GradeDistributionSerializer(serializers.Serializer):
+    level = serializers.CharField()
+    level_display = serializers.CharField()
+    students = serializers.IntegerField()
+    grades = GradeCountSerializer(many=True)
+
+
+class DivisionCountSerializer(serializers.Serializer):
+    division = serializers.CharField()
+    label = serializers.CharField()
+    candidates = serializers.IntegerField()
+
+
+class NationalExamSummarySerializer(serializers.Serializer):
+    exam = serializers.CharField()
+    label = serializers.CharField()
+    year = serializers.IntegerField()
+    sat = serializers.IntegerField()
+    passed = serializers.IntegerField()
+    pass_rate = serializers.FloatField(allow_null=True)
+    divisions = DivisionCountSerializer(many=True)
+
+
+class SubjectPerformanceSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    subject = serializers.CharField()
+    code = serializers.CharField()
+    level = serializers.CharField()
+    level_display = serializers.CharField()
+    category = serializers.CharField()
+    average_mark = serializers.FloatField(allow_null=True)
+    pass_rate = serializers.FloatField(allow_null=True)
+    previous_pass_rate = serializers.FloatField(allow_null=True)
+    results = serializers.IntegerField()
+
+
+class TestResultSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    subject = serializers.CharField()
+    level = serializers.CharField()
+    level_display = serializers.CharField()
+    test_1_average = serializers.FloatField(allow_null=True)
+    test_2_average = serializers.FloatField(allow_null=True)
+    test_1_pass_rate = serializers.FloatField(allow_null=True)
+    test_2_pass_rate = serializers.FloatField(allow_null=True)
+    students_assessed = serializers.IntegerField()
+
+
+class PerformanceDashboardSerializer(serializers.Serializer):
+    term = TermSummarySerializer()
+    compared_with = TermSummarySerializer(allow_null=True)
+    summary = PerformanceSummarySerializer()
+    grade_distribution = GradeDistributionSerializer(many=True)
+    national_exams = NationalExamSummarySerializer(many=True)
+    subjects = SubjectPerformanceSerializer(many=True)
+    tests = TestResultSerializer(many=True)
