@@ -1,0 +1,19 @@
+#!/bin/sh
+
+while read local_ref local_sha remote_ref remote_sha
+do
+    branch=$(echo "$local_ref" | sed 's#refs/heads/##')
+
+    if [ "$branch" = "main" ]; then
+        echo ""
+        echo "=========================================="
+        echo "❌ DIRECT PUSH TO MAIN IS NOT ALLOWED"
+        echo "=========================================="
+        echo ""
+        echo "Create a Pull Request instead."
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
