@@ -142,6 +142,8 @@ class ApplicationSerializer(serializers.ModelSerializer):
 class AcademicDashboardQuerySerializer(serializers.Serializer):
     term = serializers.IntegerField(required=False)
     campus = serializers.ChoiceField(choices=School.Campus.choices, required=False)
+    level = serializers.ChoiceField(choices=School.Level.choices, required=False)
+    stream = serializers.ChoiceField(choices=School.Streams.choices, required=False)
     school = serializers.IntegerField(required=False)
 
 
@@ -302,6 +304,7 @@ class PerformanceDashboardQuerySerializer(serializers.Serializer):
     term = serializers.IntegerField(required=False)
     campus = serializers.ChoiceField(choices=School.Campus.choices, required=False)
     level = serializers.ChoiceField(choices=School.Level.choices, required=False)
+    stream = serializers.ChoiceField(choices=School.Streams.choices, required=False)
     school = serializers.IntegerField(required=False)
 
 
