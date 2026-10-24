@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "operations.apps.OperationsConfig",
     "integrations.apps.IntegrationsConfig",
     "services.apps.ServicesConfig",
+    "rest_framework",
 
 ]
 

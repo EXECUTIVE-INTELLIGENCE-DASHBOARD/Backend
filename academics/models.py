@@ -161,7 +161,7 @@ class StudentProfile(SourceTrackedModel):
         return self.student_number
 
 
-class Enrolment(SourceTrackedModel):
+class Enrollment(SourceTrackedModel):
     """A student's place at a school for one term."""
 
     class Status(models.TextChoices):
@@ -426,3 +426,17 @@ class NationalExamResult(SourceTrackedModel):
 
     def __str__(self):
         return f"{self.student} - {self.get_exam_display()} {self.year}"
+
+class Score (models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    campus = models.ForeignKey("Campus", on_delete=models.CASCADE)
+    term = models.ForeignKey(Term, on_delete=models.CASCADE)
+    grades = models.ForeignKey(GradeResult, on_delete=models.CASCADE)
+
+class PerfomanceTarget(models.Model):
+     subject = models.ForeignKey(Subject, null=True, blank=True, on_delete=models.CASCADE) # null = overall target
+     term = models.CharField(max_length=20)
+     target = models.DecimalField(max_digits=5, decimal_places=2)
+
+    
