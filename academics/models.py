@@ -161,7 +161,7 @@ class StudentProfile(SourceTrackedModel):
         return self.student_number
 
 
-class Enrolment(SourceTrackedModel):
+class Enrollment(SourceTrackedModel):
     """A student's place at a school for one term."""
 
     class Status(models.TextChoices):
@@ -426,3 +426,31 @@ class NationalExamResult(SourceTrackedModel):
 
     def __str__(self):
         return f"{self.student} - {self.get_exam_display()} {self.year}"
+
+class PerformanceTarget(models.Model):
+    """The target average mark (%) for a term. A blank subject means the overall target."""
+
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name="performance_targets")
+    subject = models.ForeignKey(
+        Subject, null=True, blank=True, on_delete=models.CASCADE,
+        related_name="performance_targets",
+    )
+    target = models.DecimalField(max_digits=4, decimal_places=1)  # 0.0 to 100.0
+
+    class Meta:
+        ordering = ["term", "subject"]
+        constraints = [
+            models.UniqueConstraint(fields=["term", "subject"], name="unique_target_per_subject"),
+            # NULLs count as distinct in the constraint above, so guard the overall target separately
+            models.UniqueConstraint(
+                fields=["term"],
+                condition=models.Q(subject__isnull=True),
+                name="one_overall_target_per_term",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(target__gte=0, target__lte=100), name="target_0_to_100"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.subject or 'Overall'} target, {self.term}: {self.target}%"
