@@ -37,14 +37,18 @@ def setup():
         name="Primary Kibuli", campus=School.Campus.KIBULI, capacity=10, minimum_enrolment=3
     )
     buwaate = School.objects.create(
-        name="Nursery Buwaate", campus=School.Campus.BUWAATE, capacity=5, minimum_enrolment=4
+        name="Nursery Buwaate", campus=School.Campus.BUWAATE, 
+        capacity=5, minimum_enrolment=4
     )
-    annex = School.objects.create(name="Annex Preschool", campus=School.Campus.ANNEX, capacity=5)
+    annex = School.objects.create(name="Annex Preschool",
+                                  campus=School.Campus.Secondary, capacity=5)
     term2 = Term.objects.create(
-        academic_year="2026", number=2, start_date=date(2026, 5, 25), end_date=date(2026, 8, 14)
+        academic_year="2026", number=2, 
+        start_date=date(2026, 5, 25), end_date=date(2026, 8, 14)
     )
     term3 = Term.objects.create(
-        academic_year="2026", number=3, start_date=date(2026, 9, 14), end_date=date(2026, 12, 4)
+        academic_year="2026", number=3,
+        start_date=date(2026, 9, 14), end_date=date(2026, 12, 4)
     )
     return {"kibuli": kibuli, "buwaate": buwaate, "annex": annex, "term2": term2, "term3": term3}
 
@@ -112,9 +116,9 @@ def test_enrollment_dashboard_campus_bars_and_school_minimums(client, enrollment
     body = client.get(ENROLLMENT_URL, {"term": enrollment["term3"].pk}).json()
 
     assert [(c["campus_display"], c["boys"], c["girls"], c["total"]) for c in body["campuses"]] == [
-        ("Kibuli Main", 3, 2, 5),
-        ("Buwaate", 1, 2, 3),
-        ("Annex Preschool", 0, 1, 1),
+        ("Greenhill Academy Kibuli Main", 3, 2, 5),
+        ("Greenhill Academy Buwaate", 1, 2, 3),
+        ("Greenhill Academy Secondary- Kansanga", 0, 1, 1),
     ]
     schools = {s["name"]: s for s in body["schools"]}
     assert schools["Nursery Buwaate"]["enrolled"] == 3
@@ -124,11 +128,12 @@ def test_enrollment_dashboard_campus_bars_and_school_minimums(client, enrollment
 
 @pytest.mark.django_db
 def test_enrollment_dashboard_filters_by_campus(client, enrollment):
-    body = client.get(ENROLLMENT_URL, {"term": enrollment["term3"].pk, "campus": "kibuli"}).json()
+    body = client.get(ENROLLMENT_URL, {"term": enrollment["term3"].pk,
+                                       "campus": School.Campus.KIBULI}).json()
 
     assert body["summary"]["total_active_enrolment"] == 5
     assert body["summary"]["capacity_utilisation"] == 50.0
-    assert [c["campus"] for c in body["campuses"]] == ["kibuli"]
+    assert [c["campus"] for c in body["campuses"]] == [School.Campus.KIBULI]
     assert [s["name"] for s in body["schools"]] == ["Primary Kibuli"]
 
 
@@ -202,12 +207,12 @@ def test_retention_by_nationality_and_campus(client, retention):
     body = client.get(RETENTION_URL, {"term": retention["term3"].pk}).json()
 
     rows = {(r["nationality"], r["campus"]): r for r in body["by_nationality"]}
-    ugandan_kibuli = rows[("Ugandan", "kibuli")]
+    ugandan_kibuli = rows[("Ugandan", School.Campus.KIBULI)]
     assert (ugandan_kibuli["eligible"], ugandan_kibuli["re_enrolled"]) == (2, 2)
-    assert rows[("Ugandan", "kibuli")]["retention_rate"] == 100.0
-    assert rows[("Kenyan", "kibuli")]["retention_rate"] == 0.0
-    assert rows[("Kenyan", "buwaate")]["retention_rate"] == 100.0
-    assert rows[("Rwandese", "buwaate")]["retention_rate"] == 0.0
+    assert rows[("Ugandan", School.Campus.KIBULI)]["retention_rate"] == 100.0
+    assert rows[("Kenyan", School.Campus.KIBULI)]["retention_rate"] == 0.0
+    assert rows[("Kenyan", School.Campus.BUWAATE)]["retention_rate"] == 100.0
+    assert rows[("Rwandese", School.Campus.BUWAATE)]["retention_rate"] == 0.0
     assert body["by_nationality"][0]["nationality"] == "Ugandan"  # largest group first
 
 
@@ -224,7 +229,8 @@ def test_retention_withdrawal_reasons(client, retention):
 
 @pytest.mark.django_db
 def test_retention_filters_by_campus(client, retention):
-    body = client.get(RETENTION_URL, {"term": retention["term3"].pk, "campus": "kibuli"}).json()
+    body = client.get(RETENTION_URL, {"term": retention["term3"].pk,
+                                       "campus": School.Campus.KIBULI}).json()
 
     assert body["summary"]["eligible_to_return"] == 3
     assert body["summary"]["total_re_enrolled"] == 2  # S2 counts even though she moved
@@ -355,7 +361,7 @@ def test_grade_for_uses_the_subject_levels_scale(level, mark, grade):
 def maths_test(setup):
     maths = Subject.objects.create(code="MTC", name="Mathematics", level="o_level",
                                    category="science")
-    secondary = School.objects.create(name="Secondary Kibuli", campus="kibuli",
+    secondary = School.objects.create(name="Secondary Kibuli", campus=School.Campus.KIBULI,
                                       level="secondary")
     return Assessment.objects.create(school=secondary, term=setup["term3"], subject=maths,
                                      class_level="S3", kind=Assessment.Kind.TEST_1)
@@ -422,7 +428,7 @@ def performance(setup):
     primary = setup["kibuli"]
     primary.level = School.Level.PRIMARY
     primary.save()
-    secondary = School.objects.create(name="Secondary Kibuli", campus="kibuli",
+    secondary = School.objects.create(name="Secondary Kibuli", campus=School.Campus.KIBULI,
                                       level=School.Level.SECONDARY, capacity=10)
     maths = Subject.objects.create(code="MTC", name="Mathematics", level="o_level",
                                    category="science")
@@ -544,7 +550,7 @@ def test_performance_national_exam_pass_rates(client, performance):
 @pytest.mark.django_db
 def test_performance_campus_with_no_results(client, performance):
     body = client.get(PERFORMANCE_URL, {"term": performance["term3"].pk,
-                                        "campus": "buwaate"}).json()
+                                        "campus": School.Campus.BUWAATE}).json()
 
     assert body["summary"]["students_assessed"] == 0
     assert body["summary"]["student_performance"] is None
