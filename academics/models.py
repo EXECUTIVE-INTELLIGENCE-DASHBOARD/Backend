@@ -99,9 +99,9 @@ class School(models.Model):
     """A GreenHill school. Lives here until the shared organisation structure exists."""
 
     class Campus(models.TextChoices):
-        KIBULI = "Greenhill Academy kibuli", "Greenhill Academy Kibuli Main"
-        BUWAATE = "Greenhill Academy buwaate", "Greenhill Academy Buwaate"
-        Secondary = "Greenhill Academy secondary- kansanga", "Greenhill Academy Secondary- Kansanga"
+        KIBULI = "kibuli", "Kibuli Main"
+        BUWAATE = "buwaate", "Buwaate"
+        ANNEX = "annex", "Annex Preschool"
 
     class Level(models.TextChoices):
         NURSERY = "nursery", "Nursery"
@@ -112,12 +112,13 @@ class School(models.Model):
          RED ="red", "Red"
          GREEN ="green", "Green"
          PURPLE ="purple", "Purple"
+    
     name = models.CharField(max_length=150, unique=True)
     campus = models.CharField(max_length=60, choices=Campus.choices)
     # the section filter on the academic screens; blank until the source says
     level = models.CharField(max_length=20, choices=Level.choices, blank=True)
     stream = models.CharField(max_length=20, choices=Streams.choices, blank=True)
-    capacity = models.PositiveIntegerField(default=25)  # places available, for capacity utilisation
+    capacity = models.PositiveIntegerField(default=0)  # places available, for capacity utilisation
     # the board is alerted when enrolment falls below this
     minimum_enrolment = models.PositiveIntegerField(default=0)
 

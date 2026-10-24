@@ -1,4 +1,3 @@
-
 import re
 
 from django.db.models import Avg, Count, Exists, OuterRef, Q, Sum
@@ -67,48 +66,40 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     queryset = Student.objects.all()
 
-
 @extend_schema(tags=["Academics - Performance"])
 class AcademicViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicSerializer
     queryset = Academic.objects.all()
-
 
 @extend_schema(tags=["Academics - Students"])
 class SectionViewSet(viewsets.ModelViewSet):
     serializer_class = SectionSerializer
     queryset = Section.objects.all()
 
-
 @extend_schema(tags=["Academics - Performance"])
 class GradeResultViewSet(viewsets.ModelViewSet):
     serializer_class = GradeResultSerializer
     queryset = GradeResult.objects.all()
-
 
 @extend_schema(tags=["Academics - Performance"])
 class HomeworkViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkSerializer
     queryset = Homework.objects.all()
 
-
 @extend_schema(tags=["Academics - Students"])
 class AttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSerializer
     queryset = Attendance.objects.all()
-
 
 @extend_schema(tags=["Academics - Co-Curricular"])
 class CurricularViewSet(viewsets.ModelViewSet):
     serializer_class = CurricularSerializer
     queryset = Curricular.objects.all()
 
-
 @extend_schema(tags=["Academics - Co-Curricular"])
 class EventsViewSet(viewsets.ModelViewSet):
     serializer_class = EventsSerializer
     queryset = Events.objects.all()
-
 
 @extend_schema(tags=["Academics - Staff"])
 class StaffViewSet(viewsets.ModelViewSet):
@@ -134,9 +125,7 @@ def _resolve_term(term_id):
     """The requested term, or the latest term that has started (else the latest term)."""
     if term_id:
         return get_object_or_404(Term, pk=term_id)
-    started = Term.objects.filter(
-        start_date__lte=timezone.localdate()
-    ).order_by("-start_date")
+    started = Term.objects.filter(start_date__lte=timezone.localdate()).order_by("-start_date")
     return started.first() or Term.objects.order_by("-start_date").first()
 
 
@@ -146,9 +135,10 @@ def _scope(queryset, params, prefix=""):
         queryset = queryset.filter(**{f"{prefix}campus": params["campus"]})
     if params.get("level"):
         queryset = queryset.filter(**{f"{prefix}level": params["level"]})
+    if params.get("stream"):
+        queryset = queryset.filter(**{f"{prefix}stream": params["stream"]})
     if params.get("school"):
-        field = "pk" if not prefix else "id"
-        queryset = queryset.filter(**{f"{prefix}{field}": params["school"]})
+        queryset = queryset.filter(**{f"{prefix}{'pk' if not prefix else 'id'}": params["school"]})
     return queryset
 
 
@@ -176,9 +166,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         for field in ("gender", "nationality"):
             if self.request.query_params.get(field):
-                queryset = queryset.filter(
-                    **{field: self.request.query_params[field]}
-                )
+                queryset = queryset.filter(**{field: self.request.query_params[field]})
         return queryset
 
 
@@ -218,8 +206,7 @@ class EnrollmentDashboardView(APIView):
     """
 
     @extend_schema(
-        parameters=[AcademicDashboardQuerySerializer],
-        responses=EnrollmentDashboardSerializer,
+        parameters=[AcademicDashboardQuerySerializer], responses=EnrollmentDashboardSerializer
     )
     def get(self, request):
         query = AcademicDashboardQuerySerializer(data=request.query_params)
@@ -227,96 +214,55 @@ class EnrollmentDashboardView(APIView):
         params = query.validated_data
         term = _resolve_term(params.get("term"))
         if term is None:
-            return Response(
-                {"detail": "No terms have been set up yet."},
-                status=404,
-            )
+            return Response({"detail": "No terms have been set up yet."}, status=404)
 
         active = _scope(
-            Enrolment.objects.filter(
-                term=term,
-                status=Enrolment.Status.ACTIVE,
-            ),
-            params,
-            prefix="school__",
+            Enrolment.objects.filter(term=term, status=Enrolment.Status.ACTIVE),
+            params, prefix="school__",
         )
         total = active.count()
 
         # Enrolment by campus and gender, for the bar chart.
         Gender = StudentProfile.Gender
         counts = {}
-        for row in active.values(
-            "school__campus",
-            "student__gender",
-        ).annotate(n=Count("id")):
+        for row in active.values("school__campus", "student__gender").annotate(n=Count("id")):
             counts[(row["school__campus"], row["student__gender"])] = row["n"]
-
-        # Use campus values from the database to support legacy campus values.
-        if params.get("campus"):
-            campus_keys = [params["campus"]]
-        else:
-            campus_keys = list(
-                School.objects.order_by()
-                .values_list("campus", flat=True)
-                .distinct()
-                .order_by("campus")
-            )
-
+        campus_keys = [params["campus"]] if params.get("campus") else School.Campus.values
         campuses = []
         for key in campus_keys:
             boys = counts.get((key, Gender.MALE), 0)
             girls = counts.get((key, Gender.FEMALE), 0)
             campuses.append({
-                "campus": key,
-                "campus_display": key,
-                "boys": boys,
-                "girls": girls,
-                "total": boys + girls,
+                "campus": key, "campus_display": School.Campus(key).label,
+                "boys": boys, "girls": girls, "total": boys + girls,
             })
-
-        boys = sum(campus["boys"] for campus in campuses)
-        girls = sum(campus["girls"] for campus in campuses)
+        boys = sum(c["boys"] for c in campuses)
+        girls = sum(c["girls"] for c in campuses)
 
         # Per-school enrolment against capacity and the board's minimum.
         schools = _scope(School.objects.all(), params).annotate(
             enrolled=Count(
                 "enrolments",
-                filter=Q(
-                    enrolments__term=term,
-                    enrolments__status=Enrolment.Status.ACTIVE,
-                ),
+                filter=Q(enrolments__term=term, enrolments__status=Enrolment.Status.ACTIVE),
             )
         )
         school_rows = [{
-            "id": school.pk,
-            "name": school.name,
-            "campus": school.campus,
-            "enrolled": school.enrolled,
-            "capacity": school.capacity,
-            "minimum_enrolment": school.minimum_enrolment,
-            "below_minimum": school.enrolled < school.minimum_enrolment,
-        } for school in schools]
-        capacity = sum(school.capacity for school in schools)
+            "id": s.pk, "name": s.name, "campus": s.campus, "enrolled": s.enrolled,
+            "capacity": s.capacity, "minimum_enrolment": s.minimum_enrolment,
+            "below_minimum": s.enrolled < s.minimum_enrolment,
+        } for s in schools]
+        capacity = sum(s.capacity for s in schools)
 
         # Admissions funnel: each application counts at its stage and every stage before it.
-        applications = _scope(
-            Application.objects.filter(term=term),
-            params,
-            prefix="school__",
-        )
-        stage_counts = dict(
-            applications.values_list("stage").annotate(n=Count("id"))
-        )
+        applications = _scope(Application.objects.filter(term=term), params, prefix="school__")
+        stage_counts = dict(applications.values_list("stage").annotate(n=Count("id")))
         order = Application.STAGE_ORDER
         applied = sum(stage_counts.values())
         pipeline = []
-
         for i, stage in enumerate(order):
-            reached = sum(stage_counts.get(stage_value, 0) for stage_value in order[i:])
+            reached = sum(stage_counts.get(s, 0) for s in order[i:])
             pipeline.append({
-                "stage": stage,
-                "label": stage.label,
-                "count": reached,
+                "stage": stage, "label": stage.label, "count": reached,
                 "rate": _rate(reached, applied),
             })
 
@@ -324,18 +270,14 @@ class EnrollmentDashboardView(APIView):
             "term": _term_summary(term),
             "summary": {
                 "total_active_enrolment": total,
-                # Applicants who became students out of all applications.
-                "admissions_conversion": _rate(
-                    pipeline[-1]["count"], applied
-                ),
+                # applicants who became students (the last funnel stage) out of all applications
+                "admissions_conversion": _rate(pipeline[-1]["count"], applied),
                 "capacity": capacity,
                 "capacity_utilisation": _rate(total, capacity),
             },
             "gender": {
-                "boys": boys,
-                "girls": girls,
-                "boys_pct": _rate(boys, boys + girls),
-                "girls_pct": _rate(girls, boys + girls),
+                "boys": boys, "girls": girls,
+                "boys_pct": _rate(boys, boys + girls), "girls_pct": _rate(girls, boys + girls),
             },
             "campuses": campuses,
             "schools": school_rows,
@@ -354,8 +296,7 @@ class RetentionDashboardView(APIView):
     """
 
     @extend_schema(
-        parameters=[AcademicDashboardQuerySerializer],
-        responses=RetentionDashboardSerializer,
+        parameters=[AcademicDashboardQuerySerializer], responses=RetentionDashboardSerializer
     )
     def get(self, request):
         query = AcademicDashboardQuerySerializer(data=request.query_params)
@@ -363,99 +304,56 @@ class RetentionDashboardView(APIView):
         params = query.validated_data
         term = _resolve_term(params.get("term"))
         if term is None:
-            return Response(
-                {"detail": "No terms have been set up yet."},
-                status=404,
-            )
-
+            return Response({"detail": "No terms have been set up yet."}, status=404)
         # This academic year so far, and the last term of the year before it.
         year_terms = Term.objects.filter(
-            academic_year=term.academic_year,
-            start_date__lte=term.start_date,
+            academic_year=term.academic_year, start_date__lte=term.start_date
         )
-        first_term = year_terms.order_by("start_date").first()
-        if first_term is None:
-            return Response(
-                {"detail": "No terms have been set up for this academic year."},
-                status=404,
-            )
-        year_start = first_term.start_date
+        year_start = year_terms.order_by("start_date").first().start_date
         baseline = (
-            Term.objects.filter(start_date__lt=year_start)
-            .order_by("-start_date")
-            .first()
+            Term.objects.filter(start_date__lt=year_start).order_by("-start_date").first()
         )
 
         # Who could have come back, and who did.
         eligible = _scope(
-            Enrolment.objects.filter(term=baseline).exclude(
-                status=Enrolment.Status.GRADUATED
-            ),
-            params,
-            prefix="school__",
+            Enrolment.objects.filter(term=baseline).exclude(status=Enrolment.Status.GRADUATED),
+            params, prefix="school__",
         ).annotate(
             returned=Exists(
-                Enrolment.objects.filter(
-                    term__in=year_terms,
-                    student=OuterRef("student"),
-                )
+                Enrolment.objects.filter(term__in=year_terms, student=OuterRef("student"))
             )
         )
         rows = (
             eligible.values("student__nationality", "school__campus")
-            .annotate(
-                eligible=Count("id"),
-                re_enrolled=Count("id", filter=Q(returned=True)),
-            )
+            .annotate(eligible=Count("id"), re_enrolled=Count("id", filter=Q(returned=True)))
             .order_by("-eligible", "student__nationality")
         )
         by_nationality = [{
-            "nationality": row["student__nationality"],
-            "campus": row["school__campus"],
-            "campus_display": row["school__campus"],
-            "eligible": row["eligible"],
-            "re_enrolled": row["re_enrolled"],
-            "retention_rate": _rate(
-                row["re_enrolled"], row["eligible"]
-            ),
-        } for row in rows]
+            "nationality": r["student__nationality"], "campus": r["school__campus"],
+            "campus_display": School.Campus(r["school__campus"]).label,
+            "eligible": r["eligible"], "re_enrolled": r["re_enrolled"],
+            "retention_rate": _rate(r["re_enrolled"], r["eligible"]),
+        } for r in rows]
+        eligible_total = sum(r["eligible"] for r in by_nationality)
+        re_enrolled_total = sum(r["re_enrolled"] for r in by_nationality)
 
-        eligible_total = sum(row["eligible"] for row in by_nationality)
-        re_enrolled_total = sum(
-            row["re_enrolled"] for row in by_nationality
-        )
-
-        current = _scope(
-            Enrolment.objects.filter(term=term),
-            params,
-            prefix="school__",
-        )
-        at_risk = current.filter(
-            status=Enrolment.Status.ACTIVE,
-            at_risk=True,
-        ).count()
+        current = _scope(Enrolment.objects.filter(term=term), params, prefix="school__")
+        at_risk = current.filter(status=Enrolment.Status.ACTIVE, at_risk=True).count()
 
         # Withdrawals this year so far, by reason, largest first.
         year_enrolments = _scope(
-            Enrolment.objects.filter(term__in=year_terms),
-            params,
-            prefix="school__",
+            Enrolment.objects.filter(term__in=year_terms), params, prefix="school__"
         )
         reasons = (
             year_enrolments.filter(status=Enrolment.Status.WITHDRAWN)
-            .values("withdrawal_reason")
-            .annotate(n=Count("id"))
-            .order_by("-n")
+            .values("withdrawal_reason").annotate(n=Count("id")).order_by("-n")
         )
-        withdrawals_total = sum(row["n"] for row in reasons)
+        withdrawals_total = sum(r["n"] for r in reasons)
         withdrawal_reasons = [{
-            "reason": row["withdrawal_reason"],
-            "label": Enrolment.WithdrawalReason(
-                row["withdrawal_reason"]
-            ).label,
-            "count": row["n"],
-            "share": _rate(row["n"], withdrawals_total),
-        } for row in reasons]
+            "reason": r["withdrawal_reason"],
+            "label": Enrolment.WithdrawalReason(r["withdrawal_reason"]).label,
+            "count": r["n"], "share": _rate(r["n"], withdrawals_total),
+        } for r in reasons]
 
         data = {
             "term": _term_summary(term),
@@ -464,9 +362,7 @@ class RetentionDashboardView(APIView):
             "summary": {
                 "eligible_to_return": eligible_total,
                 "total_re_enrolled": re_enrolled_total,
-                "re_enrolment_rate": _rate(
-                    re_enrolled_total, eligible_total
-                ),
+                "re_enrolment_rate": _rate(re_enrolled_total, eligible_total),
                 "at_risk": at_risk,
             },
             "by_nationality": by_nationality,
@@ -479,11 +375,8 @@ class RetentionDashboardView(APIView):
 # --- Academic performance -----------------------------------------------------------
 
 PERFORMANCE_TAG = "Academics - Performance"
-# The scale the overall average grade is read on when one section is chosen.
-SECTION_SCALE = {
-    School.Level.PRIMARY: "primary",
-    School.Level.SECONDARY: "o_level",
-}
+# the scale the overall average grade is read on when one section is chosen
+SECTION_SCALE = {School.Level.PRIMARY: "primary", School.Level.SECONDARY: "o_level"}
 TESTS = [Assessment.Kind.TEST_1, Assessment.Kind.TEST_2]
 
 
@@ -506,9 +399,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         for field in ("level", "category"):
             if self.request.query_params.get(field):
-                queryset = queryset.filter(
-                    **{field: self.request.query_params[field]}
-                )
+                queryset = queryset.filter(**{field: self.request.query_params[field]})
         return queryset
 
 
@@ -519,9 +410,7 @@ class AssessmentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         params = self.request.query_params
-        queryset = _scope(
-            super().get_queryset(), params, prefix="school__"
-        )
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
         for field in ("term", "subject", "kind", "class_level"):
             if params.get(field):
                 queryset = queryset.filter(**{field: params[field]})
@@ -531,22 +420,13 @@ class AssessmentViewSet(viewsets.ModelViewSet):
 @extend_schema(tags=[PERFORMANCE_TAG])
 class AssessmentResultViewSet(viewsets.ModelViewSet):
     serializer_class = AssessmentResultSerializer
-    queryset = AssessmentResult.objects.select_related(
-        "assessment__subject", "assessment__school", "student"
-    )
+    queryset = AssessmentResult.objects.select_related("assessment__subject", "student")
 
     def get_queryset(self):
         params = self.request.query_params
-        queryset = _scope(
-            super().get_queryset(),
-            params,
-            prefix="assessment__school__",
-        )
-        for param, field in (
-            ("assessment", "assessment"),
-            ("student", "student"),
-            ("term", "assessment__term"),
-        ):
+        queryset = super().get_queryset()
+        for param, field in (("assessment", "assessment"), ("student", "student"),
+                             ("term", "assessment__term")):
             if params.get(param):
                 queryset = queryset.filter(**{field: params[param]})
         return queryset
@@ -559,9 +439,7 @@ class SyllabusCoverageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         params = self.request.query_params
-        queryset = _scope(
-            super().get_queryset(), params, prefix="school__"
-        )
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
         for field in ("term", "subject", "class_level"):
             if params.get(field):
                 queryset = queryset.filter(**{field: params[field]})
@@ -575,9 +453,7 @@ class NationalExamResultViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         params = self.request.query_params
-        queryset = _scope(
-            super().get_queryset(), params, prefix="school__"
-        )
+        queryset = _scope(super().get_queryset(), params, prefix="school__")
         for field in ("exam", "year", "passed"):
             if params.get(field):
                 queryset = queryset.filter(**{field: params[field]})
@@ -587,11 +463,9 @@ class NationalExamResultViewSet(viewsets.ModelViewSet):
 def _subject_figures(results):
     """Average mark, result count and passes per subject."""
     rows = results.values("assessment__subject").annotate(
-        avg=Avg("mark"),
-        n=Count("id"),
-        passes=Count("id", filter=Q(mark__gte=PASS_MARK)),
+        avg=Avg("mark"), n=Count("id"), passes=Count("id", filter=Q(mark__gte=PASS_MARK))
     )
-    return {row["assessment__subject"]: row for row in rows}
+    return {r["assessment__subject"]: r for r in rows}
 
 
 @extend_schema(tags=[PERFORMANCE_TAG])
@@ -605,212 +479,127 @@ class PerformanceDashboardView(APIView):
     """
 
     @extend_schema(
-        parameters=[PerformanceDashboardQuerySerializer],
-        responses=PerformanceDashboardSerializer,
+        parameters=[PerformanceDashboardQuerySerializer], responses=PerformanceDashboardSerializer
     )
     def get(self, request):
-        query = PerformanceDashboardQuerySerializer(
-            data=request.query_params
-        )
+        query = PerformanceDashboardQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = query.validated_data
         term = _resolve_term(params.get("term"))
         if term is None:
-            return Response(
-                {"detail": "No terms have been set up yet."},
-                status=404,
-            )
-
+            return Response({"detail": "No terms have been set up yet."}, status=404)
         previous = (
-            Term.objects.filter(start_date__lt=term.start_date)
-            .order_by("-start_date")
-            .first()
+            Term.objects.filter(start_date__lt=term.start_date).order_by("-start_date").first()
         )
 
         def term_results(of_term):
-            return _scope(
-                AssessmentResult.objects.filter(
-                    assessment__term=of_term
-                ),
-                params,
-                prefix="assessment__school__",
-            )
+            return _scope(AssessmentResult.objects.filter(assessment__term=of_term), params,
+                          prefix="assessment__school__")
 
         results = term_results(term)
 
         # Summary: each student's average across all their assessments this term.
-        averages = [
-            row["avg"]
-            for row in results.values("student").annotate(avg=Avg("mark"))
-        ]
-        passing = sum(1 for average in averages if average >= PASS_MARK)
+        averages = [r["avg"] for r in results.values("student").annotate(avg=Avg("mark"))]
+        passing = sum(1 for avg in averages if avg >= PASS_MARK)
         overall = results.aggregate(avg=Avg("mark"))["avg"]
         scale = SECTION_SCALE.get(params.get("level"))
         syllabus = _scope(
-            SyllabusCoverage.objects.filter(term=term),
-            params,
-            prefix="school__",
-        ).aggregate(
-            planned=Sum("topics_planned"),
-            covered=Sum("topics_covered"),
-        )
-        planned = syllabus["planned"] or 0
-        covered = syllabus["covered"] or 0
+            SyllabusCoverage.objects.filter(term=term), params, prefix="school__"
+        ).aggregate(planned=Sum("topics_planned"), covered=Sum("topics_covered"))
+        planned, covered = syllabus["planned"] or 0, syllabus["covered"] or 0
 
         # Grade distribution: each student's average per subject level, on that level's scale.
         counts = {level: {} for level in GRADE_SCALES}
-        per_level = results.values(
-            "student", "assessment__subject__level"
-        ).annotate(avg=Avg("mark"))
-
+        per_level = results.values("student", "assessment__subject__level").annotate(
+            avg=Avg("mark")
+        )
         for row in per_level:
             level = row["assessment__subject__level"]
             grade = grade_for(level, row["avg"])
             counts[level][grade] = counts[level].get(grade, 0) + 1
-
         grade_distribution = []
         for level, bands in GRADE_SCALES.items():
             students = sum(counts[level].values())
             if not students:
                 continue
-
-            # Best grade first, every grade listed even when nobody got it.
+            # best grade first, every grade listed even when nobody got it
             grade_distribution.append({
-                "level": level,
-                "level_display": Subject.Level(level).label,
+                "level": level, "level_display": Subject.Level(level).label,
                 "students": students,
-                "grades": [{
-                    "grade": grade,
-                    "students": counts[level].get(grade, 0),
-                    "share": _rate(
-                        counts[level].get(grade, 0), students
-                    ),
-                } for _, grade in bands],
+                "grades": [{"grade": grade, "students": counts[level].get(grade, 0),
+                            "share": _rate(counts[level].get(grade, 0), students)}
+                           for _, grade in bands],
             })
 
         # Subjects this term against the previous term.
         now = _subject_figures(results)
         before = _subject_figures(term_results(previous)) if previous else {}
-        subjects = sorted(
-            Subject.objects.in_bulk(list(now)).values(),
-            key=lambda subject: (subject.level, subject.name),
-        )
+        subjects = sorted(Subject.objects.in_bulk(list(now)).values(),
+                          key=lambda s: (s.level, s.name))
         subject_rows = []
-
         for subject in subjects:
-            row = now[subject.pk]
-            old = before.get(subject.pk)
+            row, old = now[subject.pk], before.get(subject.pk)
             subject_rows.append({
-                "id": subject.pk,
-                "subject": subject.name,
-                "code": subject.code,
-                "level": subject.level,
-                "level_display": subject.get_level_display(),
-                "category": subject.category,
-                "average_mark": _one_decimal(row["avg"]),
+                "id": subject.pk, "subject": subject.name, "code": subject.code,
+                "level": subject.level, "level_display": subject.get_level_display(),
+                "category": subject.category, "average_mark": _one_decimal(row["avg"]),
                 "pass_rate": _rate(row["passes"], row["n"]),
-                "previous_pass_rate": (
-                    _rate(old["passes"], old["n"]) if old else None
-                ),
+                "previous_pass_rate": _rate(old["passes"], old["n"]) if old else None,
                 "results": row["n"],
             })
 
         # Test 1 and Test 2, per subject.
         tests = results.filter(assessment__kind__in=TESTS)
         by_kind = {}
-
-        for row in tests.values(
-            "assessment__subject", "assessment__kind"
-        ).annotate(
-            avg=Avg("mark"),
-            n=Count("id"),
-            passes=Count("id", filter=Q(mark__gte=PASS_MARK)),
+        for row in tests.values("assessment__subject", "assessment__kind").annotate(
+            avg=Avg("mark"), n=Count("id"), passes=Count("id", filter=Q(mark__gte=PASS_MARK))
         ):
-            by_kind[
-                (row["assessment__subject"], row["assessment__kind"])
-            ] = row
-
-        assessed = dict(
-            tests.values_list("assessment__subject").annotate(
-                n=Count("student", distinct=True)
-            )
-        )
+            by_kind[(row["assessment__subject"], row["assessment__kind"])] = row
+        assessed = dict(tests.values_list("assessment__subject").annotate(
+            n=Count("student", distinct=True)
+        ))
         test_rows = []
-
         for subject in subjects:
             if subject.pk not in assessed:
                 continue
-
-            first = by_kind.get(
-                (subject.pk, Assessment.Kind.TEST_1)
-            )
-            second = by_kind.get(
-                (subject.pk, Assessment.Kind.TEST_2)
-            )
+            first = by_kind.get((subject.pk, Assessment.Kind.TEST_1))
+            second = by_kind.get((subject.pk, Assessment.Kind.TEST_2))
             test_rows.append({
-                "id": subject.pk,
-                "subject": subject.name,
-                "level": subject.level,
+                "id": subject.pk, "subject": subject.name, "level": subject.level,
                 "level_display": subject.get_level_display(),
-                "test_1_average": (
-                    _one_decimal(first["avg"]) if first else None
-                ),
-                "test_2_average": (
-                    _one_decimal(second["avg"]) if second else None
-                ),
-                "test_1_pass_rate": (
-                    _rate(first["passes"], first["n"]) if first else None
-                ),
-                "test_2_pass_rate": (
-                    _rate(second["passes"], second["n"]) if second else None
-                ),
+                "test_1_average": _one_decimal(first["avg"]) if first else None,
+                "test_2_average": _one_decimal(second["avg"]) if second else None,
+                "test_1_pass_rate": _rate(first["passes"], first["n"]) if first else None,
+                "test_2_pass_rate": _rate(second["passes"], second["n"]) if second else None,
                 "students_assessed": assessed[subject.pk],
             })
 
         # National exams: the latest sitting up to this academic year.
-        exams = _scope(
-            NationalExamResult.objects.all(),
-            params,
-            prefix="school__",
-        )
+        exams = _scope(NationalExamResult.objects.all(), params, prefix="school__")
         cap = _latest_year(term.academic_year)
         if cap is not None:
             exams = exams.filter(year__lte=cap)
-
         national_exams = []
         for exam in NationalExamResult.Exam:
             sittings = exams.filter(exam=exam)
-            year = (
-                sittings.order_by("-year")
-                .values_list("year", flat=True)
-                .first()
-            )
+            year = sittings.order_by("-year").values_list("year", flat=True).first()
             if year is None:
                 continue
-
-            sitting = sittings.filter(year=year)
+            sat = sittings.filter(year=year)
             divisions = (
-                sitting.exclude(division="")
-                .values("division")
-                .annotate(n=Count("id"))
+                sat.exclude(division="").values("division").annotate(n=Count("id"))
                 .order_by("division")
             )
-            total = sitting.count()
-            passed = sitting.filter(passed=True).count()
+            total = sat.count()
+            passed = sat.filter(passed=True).count()
             national_exams.append({
-                "exam": exam,
-                "label": exam.label,
-                "year": year,
-                "sat": total,
-                "passed": passed,
-                "pass_rate": _rate(passed, total),
+                "exam": exam, "label": exam.label, "year": year, "sat": total,
+                "passed": passed, "pass_rate": _rate(passed, total),
                 "divisions": [{
-                    "division": division["division"],
-                    "label": NationalExamResult.Division(
-                        division["division"]
-                    ).label,
-                    "candidates": division["n"],
-                } for division in divisions],
+                    "division": d["division"],
+                    "label": NationalExamResult.Division(d["division"]).label,
+                    "candidates": d["n"],
+                } for d in divisions],
             })
 
         data = {
@@ -818,16 +607,12 @@ class PerformanceDashboardView(APIView):
             "compared_with": _term_summary(previous),
             "summary": {
                 "syllabus_coverage": _rate(covered, planned),
-                "topics_covered": covered,
-                "topics_planned": planned,
+                "topics_covered": covered, "topics_planned": planned,
                 "student_performance": _rate(passing, len(averages)),
-                "students_passing": passing,
-                "students_assessed": len(averages),
+                "students_passing": passing, "students_assessed": len(averages),
                 "average_mark": _one_decimal(overall),
                 "average_grade": (
-                    grade_for(scale, overall)
-                    if scale and overall is not None
-                    else None
+                    grade_for(scale, overall) if scale and overall is not None else None
                 ),
             },
             "grade_distribution": grade_distribution,
