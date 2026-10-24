@@ -66,40 +66,48 @@ class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
     queryset = Student.objects.all()
 
+
 @extend_schema(tags=["Academics - Performance"])
 class AcademicViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicSerializer
     queryset = Academic.objects.all()
+
 
 @extend_schema(tags=["Academics - Students"])
 class SectionViewSet(viewsets.ModelViewSet):
     serializer_class = SectionSerializer
     queryset = Section.objects.all()
 
+
 @extend_schema(tags=["Academics - Performance"])
 class GradeResultViewSet(viewsets.ModelViewSet):
     serializer_class = GradeResultSerializer
     queryset = GradeResult.objects.all()
+
 
 @extend_schema(tags=["Academics - Performance"])
 class HomeworkViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkSerializer
     queryset = Homework.objects.all()
 
+
 @extend_schema(tags=["Academics - Students"])
 class AttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSerializer
     queryset = Attendance.objects.all()
+
 
 @extend_schema(tags=["Academics - Co-Curricular"])
 class CurricularViewSet(viewsets.ModelViewSet):
     serializer_class = CurricularSerializer
     queryset = Curricular.objects.all()
 
+
 @extend_schema(tags=["Academics - Co-Curricular"])
 class EventsViewSet(viewsets.ModelViewSet):
     serializer_class = EventsSerializer
     queryset = Events.objects.all()
+
 
 @extend_schema(tags=["Academics - Staff"])
 class StaffViewSet(viewsets.ModelViewSet):
@@ -130,13 +138,16 @@ def _resolve_term(term_id):
 
 
 def _scope(queryset, params, prefix=""):
-    """Filter a queryset by the campus, level and school query parameters."""
+    """Filter a queryset by campus, level, stream and school."""
     if params.get("campus"):
         queryset = queryset.filter(**{f"{prefix}campus": params["campus"]})
     if params.get("level"):
         queryset = queryset.filter(**{f"{prefix}level": params["level"]})
+    if params.get("stream"):
+        queryset = queryset.filter(**{f"{prefix}stream": params["stream"]})
     if params.get("school"):
-        queryset = queryset.filter(**{f"{prefix}{'pk' if not prefix else 'id'}": params["school"]})
+        field = f"{prefix}pk" if not prefix else f"{prefix}id"
+        queryset = queryset.filter(**{field: params["school"]})
     return queryset
 
 
@@ -303,6 +314,7 @@ class RetentionDashboardView(APIView):
         term = _resolve_term(params.get("term"))
         if term is None:
             return Response({"detail": "No terms have been set up yet."}, status=404)
+
         # This academic year so far, and the last term of the year before it.
         year_terms = Term.objects.filter(
             academic_year=term.academic_year, start_date__lte=term.start_date
@@ -418,13 +430,18 @@ class AssessmentViewSet(viewsets.ModelViewSet):
 @extend_schema(tags=[PERFORMANCE_TAG])
 class AssessmentResultViewSet(viewsets.ModelViewSet):
     serializer_class = AssessmentResultSerializer
-    queryset = AssessmentResult.objects.select_related("assessment__subject", "student")
+    queryset = AssessmentResult.objects.select_related(
+        "assessment__subject", "assessment__school", "student"
+    )
 
     def get_queryset(self):
         params = self.request.query_params
-        queryset = super().get_queryset()
-        for param, field in (("assessment", "assessment"), ("student", "student"),
-                             ("term", "assessment__term")):
+        queryset = _scope(super().get_queryset(), params, prefix="assessment__school__")
+        for param, field in (
+            ("assessment", "assessment"),
+            ("student", "student"),
+            ("term", "assessment__term"),
+        ):
             if params.get(param):
                 queryset = queryset.filter(**{field: params[param]})
         return queryset
@@ -491,8 +508,11 @@ class PerformanceDashboardView(APIView):
         )
 
         def term_results(of_term):
-            return _scope(AssessmentResult.objects.filter(assessment__term=of_term), params,
-                          prefix="assessment__school__")
+            return _scope(
+                AssessmentResult.objects.filter(assessment__term=of_term),
+                params,
+                prefix="assessment__school__",
+            )
 
         results = term_results(term)
 
